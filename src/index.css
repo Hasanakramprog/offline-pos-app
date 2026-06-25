@@ -1,0 +1,128 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+
+  .lang-ar {
+    font-family: 'Noto Kufi Arabic', system-ui, sans-serif;
+  }
+
+  /* Keep barcode/price/mono fields LTR inside RTL layout */
+  .lang-ar .font-mono {
+    direction: ltr;
+    unicode-bidi: embed;
+  }
+
+  body {
+    @apply bg-pos-bg text-pos-text;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  ::-webkit-scrollbar-track {
+    @apply bg-pos-surface;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    @apply bg-pos-border rounded-full;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-pos-muted;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-pos-surface rounded-xl border border-pos-border p-4;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 rounded-lg px-4 py-2 font-medium text-sm transition-all duration-150 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+
+  .btn-primary {
+    @apply btn bg-pos-primary text-pos-bg hover:brightness-110 active:scale-95;
+  }
+
+  .btn-secondary {
+    @apply btn bg-pos-border text-pos-text hover:bg-pos-muted/20 active:scale-95;
+  }
+
+  .btn-danger {
+    @apply btn bg-pos-danger text-white hover:brightness-110 active:scale-95;
+  }
+
+  .btn-ghost {
+    @apply btn bg-transparent text-pos-muted hover:text-pos-text hover:bg-pos-border/50 active:scale-95;
+  }
+
+  .input {
+    @apply w-full bg-pos-bg border border-pos-border rounded-lg px-3 py-2 text-pos-text placeholder-pos-muted text-sm focus:outline-none focus:border-pos-primary focus:ring-1 focus:ring-pos-primary transition-colors;
+  }
+
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium;
+  }
+
+  .badge-green {
+    @apply badge bg-pos-success/20 text-pos-success;
+  }
+
+  .badge-red {
+    @apply badge bg-pos-danger/20 text-pos-danger;
+  }
+
+  .badge-yellow {
+    @apply badge bg-pos-warning/20 text-pos-warning;
+  }
+
+  .badge-blue {
+    @apply badge bg-pos-primary/20 text-pos-primary;
+  }
+}
+
+@layer utilities {
+  .animate-fade-in {
+    animation: fadeIn 0.18s ease-out;
+  }
+
+  .animate-slide-in-right {
+    animation: slideInRight 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes slideInRight {
+  from {
+    opacity: 0;
+    transform: translateX(100%);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
