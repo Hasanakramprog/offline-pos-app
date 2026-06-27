@@ -278,6 +278,30 @@ export const translations = {
   loading:                { en: 'Loading…',               ar: 'جارٍ التحميل…' },
   clear:                  { en: 'Clear',                  ar: 'مسح' },
   amount_star:            { en: 'Amount (LL) *',          ar: 'المبلغ (ل.ل) *' },
+
+  // ── Predefined Items ───────────────────────────────────────────────────
+  predef_btn:             { en: 'Presets',                        ar: 'العناصر المحفوظة'           },
+  predef_title:           { en: 'Predefined Items',               ar: 'العناصر المحددة مسبقاً'     },
+  predef_subtitle:        { en: 'Items without a barcode that you sell frequently. Click any item to add it to the cart instantly.', ar: 'عناصر بدون باركود تبيعها بشكل متكرر. انقر على أي عنصر لإضافته إلى السلة فوراً.' },
+  predef_filter_ph:       { en: 'Filter predefined items…',       ar: 'ابحث في العناصر المحفوظة…' },
+  predef_empty:           { en: 'No predefined items yet. Add your first one below.', ar: 'لا توجد عناصر محفوظة بعد. أضف العنصر الأول أدناه.' },
+  predef_no_match:        { en: 'No items match your search.',    ar: 'لا توجد عناصر تطابق البحث.' },
+  predef_add_section:     { en: 'Add New Predefined Item',        ar: 'إضافة عنصر جديد'           },
+  predef_name_ph:         { en: 'e.g. Service fee, Delivery charge…', ar: 'مثال: رسوم خدمة، رسوم التوصيل…' },
+  predef_add_btn:         { en: 'Add',                            ar: 'إضافة'                     },
+  predef_saved:           { en: 'saved to predefined items',      ar: 'تم حفظه في العناصر المحددة مسبقاً' },
+  predef_delete_confirm:  { en: 'Delete',                         ar: 'حذف'                       },
+  predef_item_name_req:   { en: 'Item name is required',          ar: 'اسم العنصر مطلوب'          },
+  predef_price_req:       { en: 'Enter a valid price',            ar: 'أدخل سعراً صحيحاً'         },
+  predef_edit_req:        { en: 'Name and valid price required',  ar: 'الاسم والسعر الصحيح مطلوبان'},
+  predef_added_to_cart:   { en: 'added to cart',                  ar: 'تمت الإضافة إلى السلة'     },
+  predef_item_name_label: { en: 'Item Name *',                    ar: 'اسم العنصر *'              },
+  predef_price_label:     { en: 'Price (LL) *',                   ar: 'السعر (ل.ل) *'             },
+  predef_item_name_edit_ph: { en: 'Item name',                    ar: 'اسم العنصر'                },
+  predef_price_edit_ph:   { en: 'Price (LL)',                     ar: 'السعر (ل.ل)'               },
+
+  // ── Receipt ────────────────────────────────────────────────────────────
+  cashier:                { en: 'Cashier',                        ar: 'الكاشير'                   },
 } as const;
 
 export type TranslationKey = keyof typeof translations;

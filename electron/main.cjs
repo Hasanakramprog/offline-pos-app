@@ -256,3 +256,101 @@ ipcMain.handle('hardware:open-drawer', async (_e, printerName) => {
     return { success: false, error: err.message };
   }
 });
+
+// ── Silent receipt print ───────────────────────────────────────────
+// Writes receipt HTML to a temp file, loads it in a hidden window, prints silently
+ipcMain.handle('print:receipt', (_e, html, printerName) => {
+  return new Promise((resolve) => {
+    const os = require('os');
+    const tmpFile = path.join(os.tmpdir(), `pos-receipt-${Date.now()}.html`);
+
+    try {
+      fs.writeFileSync(tmpFile, html, 'utf8');
+    } catch (err) {
+      console.error('[PRINT] Failed to write temp file:', err);
+      return resolve({ success: false, error: err.message });
+    }
+
+    const printWin = new BrowserWindow({
+      show: false,
+      frame: false,
+      // useContentSize: width/height = content viewport, not outer window frame
+      useContentSize: true,
+      width: 302,   // 80mm at 96 DPI
+      height: 5000,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+
+    console.log('[PRINT] Loading temp file:', tmpFile);
+    printWin.loadFile(tmpFile);
+
+    printWin.webContents.once('did-finish-load', () => {
+      console.log('[PRINT] Page loaded, sending to printer...');
+
+      // Force the Chromium viewport to exactly 302px (80mm at 96 DPI)
+      // This overrides any OS scaling or window chrome that could skew the width
+      printWin.webContents.enableDeviceEmulation({
+        screenPosition: 'desktop',
+        screenSize: { width: 302, height: 5000 },
+        viewSize:   { width: 302, height: 5000 },
+        viewPosition: { x: 0, y: 0 },
+        deviceScaleFactor: 1,
+        scale: 1,
+      });
+
+
+      // List all available printers for diagnostics
+      printWin.webContents.getPrintersAsync().then((printers) => {
+        console.log('[PRINT] Available printers:', printers.map(p => `"${p.name}"${p.isDefault ? ' (DEFAULT)' : ''}`).join(', '));
+
+        const printOptions = {
+          silent: true,
+          printBackground: false,
+          // 80mm wide × 500mm tall (in microns) — matches thermal roll paper
+          pageSize: { width: 80000, height: 5000000 },
+          // 'printableArea' = Chromium asks the XP-80C driver for its actual
+          // printable bounds and keeps content within them.
+          // 'none' sends content to the physical edge and hits hardware margins.
+          margins: { marginType: 'printableArea' },
+          scaleFactor: 100,
+        };
+        if (printerName) {
+          printOptions.deviceName = printerName;
+          console.log('[PRINT] Using printer:', printerName);
+        } else {
+          const def = printers.find(p => p.isDefault);
+          console.log('[PRINT] No printer specified — using default:', def?.name ?? 'unknown');
+        }
+
+        setTimeout(() => {
+          printWin.webContents.print(
+            printOptions,
+            (success, reason) => {
+              console.log('[PRINT] Result:', success, reason);
+              try { fs.unlinkSync(tmpFile); } catch (_) {}
+              printWin.destroy();
+              resolve({ success, error: reason });
+            }
+          );
+        }, 800);
+      });
+    });
+
+    printWin.webContents.once('did-fail-load', (_ev, code, desc) => {
+      console.error('[PRINT] Failed to load page:', code, desc);
+      try { fs.unlinkSync(tmpFile); } catch (_) {}
+      printWin.destroy();
+      resolve({ success: false, error: desc });
+    });
+  });
+});
+
+// List available printers
+ipcMain.handle('print:getPrinters', async (_e) => {
+  // Create a temporary hidden window just to query printers
+  const tmpWin = new BrowserWindow({ show: false, webPreferences: { contextIsolation: true } });
+  await tmpWin.loadURL('about:blank');
+  const printers = await tmpWin.webContents.getPrintersAsync();
+  tmpWin.destroy();
+  return printers.map(p => ({ name: p.name, isDefault: p.isDefault }));
+});

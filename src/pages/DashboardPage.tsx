@@ -41,7 +41,7 @@ export const DashboardPage: React.FC = () => {
   const netProfit = today.total_revenue_lbp - expenses.today_lbp;
 
   const stat = (label: string, value: string, sub: string, icon: React.ReactNode, color: string) => (
-    <div className="card flex items-center gap-4">
+    <div className="card flex items-center gap-4 hover-lift animate-fade-in">
       <div className={`w-12 h-12 rounded-xl flex items-center justify-center ${color}`}>
         {icon}
       </div>
@@ -63,7 +63,7 @@ export const DashboardPage: React.FC = () => {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-2 xl:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 xl:grid-cols-3 gap-4 stagger-children">
         {stat(t('stat_revenue'), formatLBP(today.total_revenue_lbp), formatUSD(lbpToUsd(today.total_revenue_lbp, rate)),
           <span className="text-pos-success font-bold text-lg">LL</span>, 'bg-pos-success/10')}
           
@@ -91,19 +91,19 @@ export const DashboardPage: React.FC = () => {
           <AreaChart data={chartData}>
             <defs>
               <linearGradient id="rev" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.3} />
-                <stop offset="95%" stopColor="#06b6d4" stopOpacity={0} />
+                <stop offset="5%" stopColor="#6366f1" stopOpacity={0.2} />
+                <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
               </linearGradient>
             </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-            <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={v => v.slice(5)} />
-            <YAxis tick={{ fill: '#94a3b8', fontSize: 10 }} tickFormatter={v => `${(v / 1000000).toFixed(1)}M`} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 11 }} tickFormatter={v => v.slice(5)} />
+            <YAxis tick={{ fill: '#64748b', fontSize: 10 }} tickFormatter={v => `${(v / 1000000).toFixed(1)}M`} />
             <Tooltip
-              contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
-              labelStyle={{ color: '#f8fafc' }}
+              contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 6px -1px rgba(0,0,0,.08)' }}
+              labelStyle={{ color: '#1e293b' }}
               formatter={(v: number) => [formatLBP(v), t('stat_revenue')]}
             />
-            <Area type="monotone" dataKey="revenue" stroke="#06b6d4" fill="url(#rev)" strokeWidth={2} />
+            <Area type="monotone" dataKey="revenue" stroke="#6366f1" fill="url(#rev)" strokeWidth={2} />
           </AreaChart>
         </ResponsiveContainer>
       </div>

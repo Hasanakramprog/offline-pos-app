@@ -4,8 +4,9 @@ import {
   ChevronLeft, ChevronRight, ChevronUp, ChevronDown, SlidersHorizontal,
 } from 'lucide-react';
 import { getProducts, createProduct, updateProduct, deleteProduct, getCategories, createCategory } from '../services/products';
+import { useSettingsStore } from '../store/settingsStore';
 import { toast } from '../store/toastStore';
-import { formatLBP } from '../utils/formatters';
+import { formatLBP, formatUSD, lbpToUsd } from '../utils/formatters';
 import { Button } from '../components/Common/Button';
 import { Modal } from '../components/Common/Modal';
 import { ImageLightbox } from '../components/Common/ImageLightbox';
@@ -23,6 +24,8 @@ export const InventoryPage: React.FC = () => {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const { t } = useLang();
+  const { settings } = useSettingsStore();
+  const rate = settings?.usd_to_lbp_rate || 89500;
 
   // ── Filters ──────────────────────────────────────────────────────────────
   const [search, setSearch] = useState('');
@@ -47,6 +50,7 @@ export const InventoryPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState<Product | null>(null);
   const [priceLbpDisplay, setPriceLbpDisplay] = useState('');
+  const [priceUsdDisplay, setPriceUsdDisplay] = useState('');
   const [imageDragging, setImageDragging] = useState(false);
   const [lightboxImg, setLightboxImg] = useState<{ src: string; alt: string } | null>(null);
   const [addingCat, setAddingCat] = useState(false);
@@ -63,6 +67,17 @@ export const InventoryPage: React.FC = () => {
     const stripped = e.target.value.replace(/,/g, '').replace(/[^0-9]/g, '');
     setPriceLbpDisplay(stripped === '' ? '' : Number(stripped).toLocaleString('en-US'));
     f('price_lbp', stripped);
+    const lbpVal = Number(stripped) || 0;
+    setPriceUsdDisplay(stripped === '' ? '' : (lbpVal / rate).toFixed(2));
+  };
+
+  const handlePriceUsdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const stripped = e.target.value.replace(/[^0-9.]/g, '');
+    setPriceUsdDisplay(stripped);
+    const usdVal = parseFloat(stripped) || 0;
+    const lbpVal = Math.round(usdVal * rate);
+    setPriceLbpDisplay(stripped === '' ? '' : lbpVal.toLocaleString('en-US'));
+    f('price_lbp', stripped === '' ? '' : lbpVal);
   };
 
   const processImageFile = (file: File) => {
@@ -183,7 +198,7 @@ export const InventoryPage: React.FC = () => {
 
   // ── Modal openers ────────────────────────────────────────────────────────
   const openAdd = () => {
-    setEditing(null); setForm(emptyForm); setPriceLbpDisplay('');
+    setEditing(null); setForm(emptyForm); setPriceLbpDisplay(''); setPriceUsdDisplay('');
     setAddingCat(false); setNewCatName(''); setModalOpen(true);
   };
   const openEdit = (p: Product) => {
@@ -192,6 +207,7 @@ export const InventoryPage: React.FC = () => {
               sku: p.sku ?? '', category_id: p.category_id ?? '',
               price_lbp: String(p.price_lbp), image_url: p.image_url ?? '', is_active: p.is_active });
     setPriceLbpDisplay(formatPrice(String(Math.round(p.price_lbp))));
+    setPriceUsdDisplay((p.price_lbp / rate).toFixed(2));
     setAddingCat(false); setNewCatName(''); setModalOpen(true);
   };
 
@@ -576,12 +592,16 @@ export const InventoryPage: React.FC = () => {
               <input className="input" placeholder={t('product_name_ph')} value={form.name} onChange={e => f('name', e.target.value)} />
             </div>
             <div>
-              <label className="text-sm text-pos-muted block mb-1">{t('field_price')}</label>
+              <label className="text-sm text-pos-muted block mb-1">{t('field_price')} (LL)</label>
               <input className="input font-mono" type="text" inputMode="numeric"
                 placeholder="e.g. 250,000" value={priceLbpDisplay} onChange={handlePriceChange} />
-              {priceLbpDisplay && <p className="text-xs text-pos-muted mt-1">{priceLbpDisplay} LL</p>}
             </div>
             <div>
+              <label className="text-sm text-pos-muted block mb-1">Price (USD)</label>
+              <input className="input font-mono" type="text" inputMode="decimal"
+                placeholder="e.g. 2.50" value={priceUsdDisplay} onChange={handlePriceUsdChange} />
+            </div>
+            <div className="col-span-2 sm:col-span-1">
               {/* Category + inline add */}
               <div className="flex items-center justify-between mb-1">
                 <label className="text-sm text-pos-muted">{t('field_category')}</label>
@@ -623,7 +643,7 @@ export const InventoryPage: React.FC = () => {
               <label className="text-sm text-pos-muted block mb-1">{t('field_barcode')}</label>
               <input className="input font-mono" placeholder="EAN / QR" value={form.barcode} onChange={e => f('barcode', e.target.value)} />
             </div>
-            <div>
+            <div className="col-span-2 sm:col-span-1">
               <label className="text-sm text-pos-muted block mb-1">{t('field_sku')}</label>
               <input className="input font-mono" placeholder="SKU" value={form.sku} onChange={e => f('sku', e.target.value)} />
             </div>

@@ -35,15 +35,15 @@ export const LoginPage: React.FC = () => {
     <div className="min-h-screen flex items-center justify-center bg-pos-bg p-4">
       {/* Background glow */}
       <div className="absolute inset-0 overflow-hidden pointer-events-none">
-        <div className="absolute -top-40 -left-40 w-96 h-96 bg-pos-primary/10 rounded-full blur-3xl" />
-        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-pos-secondary/10 rounded-full blur-3xl" />
+        <div className="absolute -top-40 -left-40 w-96 h-96 bg-pos-primary/10 rounded-full blur-3xl animate-pulse" style={{ animationDuration: '4s' }} />
+        <div className="absolute -bottom-40 -right-40 w-96 h-96 bg-pos-secondary/10 rounded-full blur-3xl animate-pulse" style={{ animationDuration: '5s', animationDelay: '1s' }} />
       </div>
 
-      <div className="relative w-full max-w-sm">
+      <div className="relative w-full max-w-sm animate-page-enter">
         {/* Logo */}
         <div className="text-center mb-8">
           <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-pos-primary mb-4 shadow-lg shadow-pos-primary/30">
-            <Store size={32} className="text-pos-bg" />
+            <Store size={32} className="text-white" />
           </div>
           <h1 className="text-2xl font-bold capitalize">{settings.store_name}</h1>
           <p className="text-pos-muted mt-1 text-sm">Point of Sale System</p>

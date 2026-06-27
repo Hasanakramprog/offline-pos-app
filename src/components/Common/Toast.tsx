@@ -26,7 +26,7 @@ export const ToastContainer: React.FC = () => {
           key={t.id}
           className={`pointer-events-auto flex items-center gap-3 px-4 py-3 rounded-xl
                       bg-pos-surface border ${borders[t.type]} shadow-xl
-                      animate-in slide-in-from-right duration-300 min-w-64 max-w-sm`}
+                      animate-toast-in min-w-64 max-w-sm`}
         >
           {icons[t.type]}
           <span className="text-sm flex-1">{t.message}</span>

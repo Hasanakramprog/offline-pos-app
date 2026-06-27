@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, Minus, Trash2, CreditCard, X, Printer, Image, PackagePlus, Check, PauseCircle, History, Clock, RotateCcw } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, CreditCard, X, Printer, Image, PackagePlus, Check, PauseCircle, History, Clock, RotateCcw, ListChecks, Pencil, ShoppingCart } from 'lucide-react';
 import { searchProducts, getProductByBarcode } from '../services/products';
 import { createSale } from '../services/sales';
 import { useCartStore } from '../store/cartStore';
@@ -35,6 +35,77 @@ export const CheckoutPage: React.FC = () => {
   const [customPriceDisplay, setCustomPriceDisplay] = useState('');
   const customNameRef = useRef<HTMLInputElement>(null);
 
+  // ── Predefined items (no barcode) ──────────────────────────────────────
+  type PredefItem = { id: string; name: string; price_lbp: number };
+  const STORAGE_KEY = 'pos_predefined_items';
+  const loadPredefined = (): PredefItem[] => {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { return []; }
+  };
+  const [showPredefined, setShowPredefined] = useState(false);
+  const [predefinedItems, setPredefinedItems] = useState<PredefItem[]>(loadPredefined);
+  const [predSearch, setPredSearch] = useState('');
+  // New-item form inside dialog
+  const [predNewName, setPredNewName] = useState('');
+  const [predNewPrice, setPredNewPrice] = useState('');
+  const [predNewPriceDisplay, setPredNewPriceDisplay] = useState('');
+  // Inline edit
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editName, setEditName] = useState('');
+  const [editPrice, setEditPrice] = useState('');
+  const [editPriceDisplay, setEditPriceDisplay] = useState('');
+
+  const savePredefined = (items: PredefItem[]) => {
+    setPredefinedItems(items);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+  };
+
+  const addPredefinedItem = () => {
+    const name = predNewName.trim();
+    const price = Number(predNewPrice);
+    if (!name) { toast.error(t('predef_item_name_req')); return; }
+    if (!price || price <= 0) { toast.error(t('predef_price_req')); return; }
+    const newItem: PredefItem = { id: crypto.randomUUID(), name, price_lbp: price };
+    savePredefined([...predefinedItems, newItem]);
+    setPredNewName('');
+    setPredNewPrice('');
+    setPredNewPriceDisplay('');
+    toast.success(`"${name}" ${t('predef_saved')}`);
+  };
+
+  const deletePredefinedItem = (id: string) => {
+    savePredefined(predefinedItems.filter(i => i.id !== id));
+  };
+
+  const startEdit = (item: PredefItem) => {
+    setEditingId(item.id);
+    setEditName(item.name);
+    setEditPrice(String(item.price_lbp));
+    setEditPriceDisplay(item.price_lbp.toLocaleString('en-US'));
+  };
+
+  const commitEdit = () => {
+    const name = editName.trim();
+    const price = Number(editPrice);
+    if (!name || !price || price <= 0) { toast.error(t('predef_edit_req')); return; }
+    savePredefined(predefinedItems.map(i => i.id === editingId ? { ...i, name, price_lbp: price } : i));
+    setEditingId(null);
+  };
+
+  const addPredefinedToCart = (item: PredefItem) => {
+    addItem({
+      product_id: `custom-${crypto.randomUUID()}`,
+      product_name: item.name,
+      unit_price_lbp: item.price_lbp,
+      quantity: 1,
+      discount_lbp: 0,
+    });
+    toast.success(`"${item.name}" ${t('predef_added_to_cart')}`);
+  };
+
+  const filteredPredefined = predefinedItems.filter(i =>
+    i.name.toLowerCase().includes(predSearch.toLowerCase())
+  );
+
   const searchRef = useRef<HTMLInputElement>(null);
   const focusSearch = () => setTimeout(() => searchRef.current?.focus(), 80);
   const {
@@ -43,10 +114,132 @@ export const CheckoutPage: React.FC = () => {
     heldOrders, parkOrder, resumeOrder, discardHeld,
   } = useCartStore();
   const [heldDrawerOpen, setHeldDrawerOpen] = useState(false);
+  const [confirmDiscardId, setConfirmDiscardId] = useState<string | null>(null);
   const { user } = useAuthStore();
   const { settings } = useSettingsStore();
   const rate = settings.usd_to_lbp_rate;
-  const { t } = useLang();
+  const { t, lang } = useLang();
+
+  // ── Print receipt in a clean isolated popup window ──────────────
+  const printReceipt = () => {
+    if (!lastSale) return;
+    const isAr = lang === 'ar';
+    const dir = isAr ? 'rtl' : 'ltr';
+
+    const discountRows = lastSale.discount_lbp > 0 ? `
+      <div class="row">
+        <span>${isAr ? 'المجموع الفرعي' : 'Subtotal'}</span>
+        <span>${formatLBP(lastSale.subtotal_lbp)}</span>
+      </div>
+      <div class="row" style="color:#b45309">
+        <span>${isAr ? 'الخصم' : 'Discount'}</span>
+        <span>−${formatLBP(lastSale.discount_lbp)}</span>
+      </div>` : '';
+
+    const footerHtml = settings.receipt_footer
+      ? `<hr class="divider"/><p class="center small">${settings.receipt_footer}</p>`
+      : '';
+
+    const itemRows = lastSale.items.map(item => `
+      <div class="row">
+        <span class="item-name">${item.product_name}</span>
+        <span class="item-qty">×${item.quantity}</span>
+        <span class="item-price">${formatLBP(item.line_total_lbp)}</span>
+      </div>`).join('');
+
+    const html = `<!DOCTYPE html>
+<html dir="${dir}" lang="${lang}">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Receipt</title>
+  <style>
+    @page { size: 80mm auto; margin: 0; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+    * { box-sizing: border-box; }
+    body {
+      width: 100%;
+      max-width: 80mm;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 9pt;
+      font-weight: 700;
+      line-height: 1.4;
+      direction: ${dir};
+    }
+    .wrap { width: 100%; box-sizing: border-box; padding: 2mm 14mm 2mm 2mm; }
+    .center { text-align: center; }
+    .store-name { font-size: 13pt; font-weight: 700; text-align: center; letter-spacing: 0.5px; margin-bottom: 1mm; text-transform: uppercase; }
+    .small { font-size: 7.5pt; color: #333; text-align: center; }
+    .divider { border: none; border-top: 1px dashed #000; margin: 2mm 0; width: 100%; display: block; }
+    .row { display: flex; justify-content: space-between; width: 100%; font-size: 8.5pt; line-height: 1.45; gap: 1mm; }
+    .row.header { color: #555; margin-bottom: 1mm; }
+    .row.bold { font-weight: 700; }
+    .row.grand { font-size: 11pt; font-weight: 700; margin-top: 1mm; }
+    .row.muted { font-size: 7.5pt; color: #555; }
+    .item-name { flex: 1; word-break: break-word; white-space: normal; text-align: ${isAr ? 'right' : 'left'}; }
+    .item-qty  { flex-shrink: 0; white-space: nowrap; padding: 0 1mm; text-align: center; }
+    .item-price{ flex-shrink: 0; white-space: nowrap; min-width: 14mm; text-align: ${isAr ? 'left' : 'right'}; }
+  </style>
+</head>
+<body><div class="wrap">
+  <p class="store-name">${settings.store_name}</p>
+  <p class="small">${isAr ? 'رقم المعاملة' : 'TX'}: ${lastSale.transaction_number}</p>
+  <p class="small">${new Date(lastSale.created_at).toLocaleString()}</p>
+  <p class="small">${isAr ? 'الكاشير' : 'Cashier'}: ${lastSale.user_name}</p>
+  <hr class="divider"/>
+  <div class="row header">
+    <span class="item-name">${isAr ? 'الصنف' : 'Item'}</span>
+    <span class="item-qty">${isAr ? 'كمية' : 'Qty'}</span>
+    <span class="item-price">${isAr ? 'المجموع' : 'Total'}</span>
+  </div>
+  ${itemRows}
+  <hr class="divider"/>
+  ${discountRows}
+  <div class="row grand">
+    <span>${isAr ? 'المجموع' : 'Total'}</span>
+    <span>${formatLBP(lastSale.total_lbp)}</span>
+  </div>
+  <div class="row muted">
+    <span></span>
+    <span>≈ ${formatUSD(lbpToUsd(lastSale.total_lbp, rate))}</span>
+  </div>
+  <div class="row" style="margin-top:1mm">
+    <span>${isAr ? 'نقد' : 'Cash'}</span>
+    <span>${formatLBP(lastSale.cash_received_lbp)}</span>
+  </div>
+  <div class="row bold" style="color:#16a34a">
+    <span>${isAr ? 'الباقي' : 'Change'}</span>
+    <span>${formatLBP(lastSale.change_lbp)}</span>
+  </div>
+  ${footerHtml}
+</div></body>
+</html>`;
+
+    // Use Electron's silent print via IPC (no dialog, no external window)
+    const api = (window as any).electronAPI?.print;
+    if (api?.receipt) {
+      // Log available printers to help identify the correct thermal printer name
+      api.getPrinters?.().then((printers: any[]) => {
+        console.log('[CHECKOUT] Available printers:', printers);
+      });
+      // Pass printer_share_name from settings if configured
+      const printerName = settings.printer_share_name || undefined;
+      api.receipt(html, printerName).then((result: any) => {
+        if (!result?.success) {
+          console.error('Print failed:', result?.error);
+          toast.error('Print failed: ' + (result?.error ?? 'unknown'));
+        }
+      });
+    } else {
+      // Fallback for browser dev mode
+      const w = window.open('', '_blank', 'width=320,height=600');
+      if (!w) return;
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      setTimeout(() => { w.print(); w.close(); }, 300);
+    }
+  };
 
   // Auto-search
   useEffect(() => {
@@ -73,7 +266,21 @@ export const CheckoutPage: React.FC = () => {
       const p = await getProductByBarcode(query.trim());
       if (p) { addToCart(p); setQuery(''); setResults([]); }
     }
-  }, [query]);
+  }, [query, items]);
+
+  // Global Enter key → open payment (when no modal is open, search is empty, cart has items)
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter') return;
+      if (paymentOpen || receiptOpen || showCustom || showPredefined) return;
+      // Don't hijack Enter inside inputs other than the search bar
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (items.length > 0) setPaymentOpen(true);
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [items, paymentOpen, receiptOpen, showCustom]);
 
   const addToCart = (p: Product) => {
     addItem({ product_id: p.id, product_name: p.name, unit_price_lbp: p.price_lbp, quantity: 1, discount_lbp: 0, image_url: p.image_url });
@@ -125,8 +332,21 @@ export const CheckoutPage: React.FC = () => {
   const handleResumeOrder = (id: string) => {
     resumeOrder(id);
     setHeldDrawerOpen(false);
+    setConfirmDiscardId(null);
     setDiscountInput('');
     toast.success('Order resumed');
+    focusSearch();
+  };
+
+  const handleDiscardHeld = (id: string) => {
+    discardHeld(id);
+    setConfirmDiscardId(null);
+    // If no more held orders, close the drawer and restore focus
+    const remaining = heldOrders.filter(h => h.id !== id);
+    if (remaining.length === 0) {
+      setHeldDrawerOpen(false);
+      focusSearch();
+    }
   };
 
   const cartTotal = total();
@@ -204,10 +424,27 @@ export const CheckoutPage: React.FC = () => {
   };
 
   return (
-    <div className="flex h-full">
-      {/* Left: Product search */}
-      <div className="flex-1 flex flex-col p-4 gap-4 overflow-hidden">
-        <h1 className="text-xl font-bold">Checkout</h1>
+    <div className="flex flex-col h-full overflow-hidden">
+      {/* Top: Search & Product Lookup */}
+      <div className="flex-shrink-0 px-6 pt-4 pb-2 space-y-3">
+        <div className="flex items-center justify-between">
+          <h1 className="text-xl font-bold">Checkout</h1>
+          {/* Held Orders badge button */}
+          <button
+            id="held-orders-btn"
+            onClick={() => setHeldDrawerOpen(true)}
+            title="View held orders"
+            className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-pos-border text-pos-muted hover:text-pos-text hover:bg-pos-border/40 transition-all text-xs font-medium"
+          >
+            <History size={14} />
+            <span>Held</span>
+            {heldOrders.length > 0 && (
+              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-pos-warning text-white text-[10px] font-bold flex items-center justify-center shadow">
+                {heldOrders.length}
+              </span>
+            )}
+          </button>
+        </div>
 
         {/* Search bar + Custom Item button */}
         <div className="flex gap-2">
@@ -242,6 +479,16 @@ export const CheckoutPage: React.FC = () => {
                 : 'border-pos-border text-pos-muted hover:text-pos-text hover:bg-pos-border/40'}`}>
             <PackagePlus size={16} />
             <span className="hidden sm:inline">{t('custom_item')}</span>
+          </button>
+          {/* Predefined items button */}
+          <button
+            id="predefined-items-btn"
+            onClick={() => setShowPredefined(true)}
+            title={t('predef_title')}
+            className="flex items-center gap-1.5 px-3 rounded-lg border border-pos-border text-sm font-medium transition-all flex-shrink-0 text-pos-muted hover:text-pos-text hover:bg-pos-border/40"
+          >
+            <ListChecks size={16} />
+            <span className="hidden sm:inline">{t('predef_btn')}</span>
           </button>
         </div>
 
@@ -329,149 +576,144 @@ export const CheckoutPage: React.FC = () => {
         )}
       </div>
 
-      {/* Right: Cart */}
-      <div className="w-96 border-s border-pos-border flex flex-col bg-pos-surface">
-        <div className="px-4 py-3 border-b border-pos-border flex items-center justify-between gap-2">
-          <h2 className="font-semibold">Cart ({items.length} items)</h2>
-          {/* Held Orders badge button */}
-          <button
-            id="held-orders-btn"
-            onClick={() => setHeldDrawerOpen(true)}
-            title="View held orders"
-            className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-pos-border text-pos-muted hover:text-pos-text hover:bg-pos-border/40 transition-all text-xs font-medium"
-          >
-            <History size={14} />
-            <span>Held</span>
-            {heldOrders.length > 0 && (
-              <span className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-pos-warning text-white text-[10px] font-bold flex items-center justify-center shadow">
-                {heldOrders.length}
-              </span>
+      {/* Center: Cart — takes the remaining space */}
+      <div className="flex-1 flex flex-col min-h-0 px-6 pb-4 pt-2">
+        <div className="flex-1 flex flex-col min-h-0 bg-pos-surface border border-pos-border rounded-2xl overflow-hidden shadow-sm">
+          {/* Cart header */}
+          <div className="px-5 py-3 border-b border-pos-border flex items-center justify-between gap-2 flex-shrink-0">
+            <h2 className="font-semibold">Cart ({items.length} items)</h2>
+            {items.length > 0 && (
+              <Button variant="ghost" className="text-xs !py-1 !px-2" onClick={() => { clearCart(); setDiscountInput(''); }}>
+                Clear Cart
+              </Button>
             )}
-          </button>
-        </div>
+          </div>
 
-        {/* Items */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
-          {items.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-pos-muted gap-2">
-              <ShoppingCartIcon />
-              <p className="text-sm">Cart is empty</p>
+          {/* Cart body — items grid + totals side by side */}
+          <div className="flex-1 flex flex-col lg:flex-row min-h-0">
+            {/* Items area — scrollable, multi-column grid */}
+            <div className="flex-1 overflow-y-auto p-4">
+              {items.length === 0 ? (
+                <div className="flex flex-col items-center justify-center h-full text-pos-muted gap-2">
+                  <ShoppingCartIcon />
+                  <p className="text-sm">Cart is empty</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+                  {items.map(item => (
+                    <div key={item.product_id} className="bg-pos-bg rounded-lg p-3">
+                      <div className="flex items-start gap-2">
+                        {/* Thumbnail / custom badge */}
+                        {item.image_url ? (
+                          <img
+                            src={item.image_url}
+                            alt={item.product_name}
+                            onClick={() => setLightboxImg({ src: item.image_url!, alt: item.product_name })}
+                            className="w-10 h-10 rounded-lg object-cover border border-pos-border flex-shrink-0 cursor-zoom-in hover:ring-2 hover:ring-pos-primary transition-all"
+                          />
+                        ) : item.product_id.startsWith('custom-') ? (
+                          <div className="w-10 h-10 rounded-lg bg-pos-primary/15 border border-pos-primary/30 flex items-center justify-center flex-shrink-0">
+                            <PackagePlus size={14} className="text-pos-primary" />
+                          </div>
+                        ) : (
+                          <div className="w-10 h-10 rounded-lg bg-pos-border/40 flex items-center justify-center flex-shrink-0">
+                            <Image size={14} className="text-pos-muted" />
+                          </div>
+                        )}
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-medium truncate">{item.product_name}</p>
+                              <p className="text-xs text-pos-muted">{formatLBP(item.unit_price_lbp)} each</p>
+                              <p className="text-xs text-pos-muted/70">{formatUSD(lbpToUsd(item.unit_price_lbp, rate))} each</p>
+                            </div>
+                            <button onClick={() => removeItem(item.product_id)} className="text-pos-danger hover:brightness-125 flex-shrink-0">
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
+                          <div className="flex items-center justify-between mt-2">
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => updateQty(item.product_id, item.quantity - 1)}
+                                className="w-7 h-7 rounded-lg bg-pos-border flex items-center justify-center hover:bg-pos-muted/30">
+                                <Minus size={12} />
+                              </button>
+                              <span className="text-sm font-medium w-6 text-center">{item.quantity}</span>
+                              <button
+                                onClick={() => updateQty(item.product_id, item.quantity + 1)}
+                                className="w-7 h-7 rounded-lg bg-pos-border flex items-center justify-center hover:bg-pos-muted/30">
+                                <Plus size={12} />
+                              </button>
+                            </div>
+                            <div className="text-right">
+                              <p className="text-sm font-bold text-pos-success">{formatLBP(item.line_total_lbp)}</p>
+                              <p className="text-xs text-pos-muted">{formatUSD(lbpToUsd(item.line_total_lbp, rate))}</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          ) : items.map(item => (
-            <div key={item.product_id} className="bg-pos-bg rounded-lg p-3">
-              <div className="flex items-start gap-2">
-                {/* Thumbnail / custom badge */}
-                {item.image_url ? (
-                  <img
-                    src={item.image_url}
-                    alt={item.product_name}
-                    onClick={() => setLightboxImg({ src: item.image_url!, alt: item.product_name })}
-                    className="w-10 h-10 rounded-lg object-cover border border-pos-border flex-shrink-0 cursor-zoom-in hover:ring-2 hover:ring-pos-primary transition-all"
-                  />
-                ) : item.product_id.startsWith('custom-') ? (
-                  <div className="w-10 h-10 rounded-lg bg-pos-primary/15 border border-pos-primary/30 flex items-center justify-center flex-shrink-0">
-                    <PackagePlus size={14} className="text-pos-primary" />
+
+            {/* Totals & Actions — right side on large screens, bottom on small */}
+            <div className="lg:w-72 xl:w-80 flex-shrink-0 border-t lg:border-t-0 lg:border-s border-pos-border p-4 space-y-3 flex flex-col justify-end">
+              {/* Order discount */}
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-pos-muted flex-1">Order Discount (LL)</label>
+                <input
+                  className="input w-32 text-sm text-right"
+                  type="number" min="0" step="1000"
+                  placeholder="0"
+                  value={discountInput}
+                  onChange={e => handleOrderDiscount(e.target.value)}
+                />
+              </div>
+
+              <div className="space-y-1.5 text-sm">
+                <div className="flex justify-between text-pos-muted">
+                  <span>Subtotal</span>
+                  <div className="text-right">
+                    <p>{formatLBP(cartSubtotal)}</p>
+                    <p className="text-xs opacity-60">{formatUSD(lbpToUsd(cartSubtotal, rate))}</p>
                   </div>
-                ) : (
-                  <div className="w-10 h-10 rounded-lg bg-pos-border/40 flex items-center justify-center flex-shrink-0">
-                    <Image size={14} className="text-pos-muted" />
+                </div>
+                {orderDiscount > 0 && (
+                  <div className="flex justify-between text-pos-warning">
+                    <span>Discount</span><span>−{formatLBP(orderDiscount)}</span>
                   </div>
                 )}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium truncate">{item.product_name}</p>
-                      <p className="text-xs text-pos-muted">{formatLBP(item.unit_price_lbp)} each</p>
-                      <p className="text-xs text-pos-muted/70">{formatUSD(lbpToUsd(item.unit_price_lbp, rate))} each</p>
-                    </div>
-                    <button onClick={() => removeItem(item.product_id)} className="text-pos-danger hover:brightness-125 flex-shrink-0">
-                      <Trash2 size={14} />
-                    </button>
-                  </div>
-                  <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => updateQty(item.product_id, item.quantity - 1)}
-                        className="w-7 h-7 rounded-lg bg-pos-border flex items-center justify-center hover:bg-pos-muted/30">
-                        <Minus size={12} />
-                      </button>
-                      <span className="text-sm font-medium w-6 text-center">{item.quantity}</span>
-                      <button
-                        onClick={() => updateQty(item.product_id, item.quantity + 1)}
-                        className="w-7 h-7 rounded-lg bg-pos-border flex items-center justify-center hover:bg-pos-muted/30">
-                        <Plus size={12} />
-                      </button>
-                    </div>
-                    <div className="text-right">
-                      <p className="text-sm font-bold text-pos-success">{formatLBP(item.line_total_lbp)}</p>
-                      <p className="text-xs text-pos-muted">{formatUSD(lbpToUsd(item.line_total_lbp, rate))}</p>
-                    </div>
+                <div className="flex justify-between font-bold text-base border-t border-pos-border pt-2">
+                  <span>TOTAL</span>
+                  <div className="text-right">
+                    <p className="text-pos-success text-lg">{formatLBP(cartTotal)}</p>
+                    <p className="text-xs text-pos-muted font-normal">{formatUSD(lbpToUsd(cartTotal, rate))}</p>
                   </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
 
-        {/* Totals */}
-        <div className="border-t border-pos-border p-4 space-y-3">
-          {/* Order discount */}
-          <div className="flex items-center gap-2">
-            <label className="text-xs text-pos-muted flex-1">Order Discount (LL)</label>
-            <input
-              className="input w-32 text-sm text-right"
-              type="number" min="0" step="1000"
-              placeholder="0"
-              value={discountInput}
-              onChange={e => handleOrderDiscount(e.target.value)}
-            />
-          </div>
-
-          <div className="space-y-1.5 text-sm">
-            <div className="flex justify-between text-pos-muted">
-              <span>Subtotal</span>
-              <div className="text-right">
-                <p>{formatLBP(cartSubtotal)}</p>
-                <p className="text-xs opacity-60">{formatUSD(lbpToUsd(cartSubtotal, rate))}</p>
-              </div>
-            </div>
-            {orderDiscount > 0 && (
-              <div className="flex justify-between text-pos-warning">
-                <span>Discount</span><span>−{formatLBP(orderDiscount)}</span>
-              </div>
-            )}
-            <div className="flex justify-between font-bold text-base border-t border-pos-border pt-2">
-              <span>TOTAL</span>
-              <div className="text-right">
-                <p className="text-pos-success text-lg">{formatLBP(cartTotal)}</p>
-                <p className="text-xs text-pos-muted font-normal">{formatUSD(lbpToUsd(cartTotal, rate))}</p>
-              </div>
+              <Button
+                className="w-full py-3"
+                icon={<CreditCard size={18} />}
+                disabled={items.length === 0}
+                onClick={() => setPaymentOpen(true)}
+              >
+                Process Payment
+              </Button>
+              {items.length > 0 && (
+                <button
+                  id="park-order-btn"
+                  onClick={handleParkOrder}
+                  className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-pos-warning/60 text-pos-warning text-sm font-medium hover:bg-pos-warning/10 transition-all"
+                >
+                  <PauseCircle size={16} />
+                  Park Order
+                </button>
+              )}
             </div>
           </div>
-
-          <Button
-            className="w-full py-3"
-            icon={<CreditCard size={18} />}
-            disabled={items.length === 0}
-            onClick={() => setPaymentOpen(true)}
-          >
-            Process Payment
-          </Button>
-          {items.length > 0 && (
-            <button
-              id="park-order-btn"
-              onClick={handleParkOrder}
-              className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl border border-pos-warning/60 text-pos-warning text-sm font-medium hover:bg-pos-warning/10 transition-all"
-            >
-              <PauseCircle size={16} />
-              Park Order
-            </button>
-          )}
-          {items.length > 0 && (
-            <Button variant="ghost" className="w-full" onClick={() => { clearCart(); setDiscountInput(''); }}>
-              Clear Cart
-            </Button>
-          )}
         </div>
       </div>
 
@@ -555,37 +797,100 @@ export const CheckoutPage: React.FC = () => {
       {/* Receipt Modal */}
       {lastSale && (
         <Modal open={receiptOpen} onClose={() => { setReceiptOpen(false); focusSearch(); }} title={t('receipt_title')} size="sm">
-          <div id="receipt-content" className="font-mono text-xs space-y-2 text-center">
-            <p className="text-base font-bold uppercase">{settings.store_name}</p>
-            <p className="text-pos-muted">{t('col_tx')}: {lastSale.transaction_number}</p>
-            <p className="text-pos-muted">{new Date(lastSale.created_at).toLocaleString()}</p>
-            <hr className="border-pos-border my-2" />
+          {/* ── Receipt Content (targeted by @media print) ── */}
+          <div id="receipt-content" className="font-mono text-xs text-center">
+
+            {/* Store name */}
+            <p className="receipt-store-name text-sm font-bold uppercase tracking-wide">
+              {settings.store_name}
+            </p>
+
+            {/* Transaction meta */}
+            <p className="receipt-meta text-pos-muted mt-1">
+              {t('col_tx')}: {lastSale.transaction_number}
+            </p>
+            <p className="receipt-meta text-pos-muted">
+              {new Date(lastSale.created_at).toLocaleString()}
+            </p>
+            <p className="receipt-cashier text-pos-muted">
+              {t('cashier') ?? 'Cashier'}: {lastSale.user_name}
+            </p>
+
+            {/* ── Divider ── */}
+            <hr className="receipt-divider border-dashed border-pos-border my-2" />
+
+            {/* Column header */}
+            <div className="receipt-item text-pos-muted mb-1 flex justify-between text-left">
+              <span className="receipt-item-name">Item</span>
+              <span className="receipt-item-qty text-center">Qty</span>
+              <span className="receipt-item-price text-right">Total</span>
+            </div>
+
+            {/* Items */}
             {lastSale.items.map((item, i) => (
-              <div key={i} className="flex justify-between text-left">
-                <span className="flex-1">{item.product_name} x{item.quantity}</span>
-                <span>{formatLBP(item.line_total_lbp)}</span>
+              <div key={i} className="receipt-item flex justify-between text-left mb-0.5">
+                <span className="receipt-item-name flex-1 text-left">{item.product_name}</span>
+                <span className="receipt-item-qty text-center px-2">×{item.quantity}</span>
+                <span className="receipt-item-price text-right">{formatLBP(item.line_total_lbp)}</span>
               </div>
             ))}
-            <hr className="border-pos-border my-2" />
+
+            {/* ── Divider ── */}
+            <hr className="receipt-divider border-dashed border-pos-border my-2" />
+
+            {/* Subtotal (only if discount exists) */}
             {lastSale.discount_lbp > 0 && (
-              <div className="flex justify-between"><span>Discount</span><span>−{formatLBP(lastSale.discount_lbp)}</span></div>
+              <>
+                <div className="receipt-total-row flex justify-between text-pos-muted">
+                  <span>Subtotal</span>
+                  <span>{formatLBP(lastSale.subtotal_lbp)}</span>
+                </div>
+                <div className="receipt-total-row flex justify-between text-amber-600">
+                  <span>Discount</span>
+                  <span>−{formatLBP(lastSale.discount_lbp)}</span>
+                </div>
+              </>
             )}
-            <div className="flex justify-between font-bold text-sm">
-              <span>{t('total')}</span><span>{formatLBP(lastSale.total_lbp)}</span>
+
+            {/* Grand total */}
+            <div className="receipt-total-row grand-total flex justify-between font-bold">
+              <span>{t('total')}</span>
+              <span>{formatLBP(lastSale.total_lbp)}</span>
             </div>
-            <div className="flex justify-between text-xs text-pos-muted">
-              <span></span><span>{formatUSD(lbpToUsd(lastSale.total_lbp, rate))}</span>
+            <div className="receipt-total-row usd-line flex justify-between text-pos-muted">
+              <span></span>
+              <span>≈ {formatUSD(lbpToUsd(lastSale.total_lbp, rate))}</span>
             </div>
-            <div className="flex justify-between"><span>{t('cash')}</span><span>{formatLBP(lastSale.cash_received_lbp)}</span></div>
-            <div className="flex justify-between text-pos-success font-bold">
-              <span>{t('change')}</span><span>{formatLBP(lastSale.change_lbp)}</span>
+
+            {/* Cash & change */}
+            <div className="receipt-total-row flex justify-between mt-1">
+              <span>{t('cash')}</span>
+              <span>{formatLBP(lastSale.cash_received_lbp)}</span>
             </div>
-            <hr className="border-pos-border my-2" />
-            <p className="text-pos-muted">{settings.receipt_footer}</p>
+            <div className="receipt-total-row flex justify-between font-bold text-pos-success">
+              <span>{t('change')}</span>
+              <span>{formatLBP(lastSale.change_lbp)}</span>
+            </div>
+
+            {/* ── Divider ── */}
+            <hr className="receipt-divider border-dashed border-pos-border my-2" />
+
+            {/* Footer */}
+            {settings.receipt_footer && (
+              <p className="receipt-footer text-pos-muted leading-snug">
+                {settings.receipt_footer}
+              </p>
+            )}
           </div>
-          <div className="flex gap-3 mt-4">
-            <Button variant="secondary" className="flex-1" onClick={() => { setReceiptOpen(false); focusSearch(); }}>{t('close')}</Button>
-            <Button className="flex-1" icon={<Printer size={16} />} onClick={() => window.print()}>{t('print')}</Button>
+
+          {/* Action buttons — hidden when printing */}
+          <div className="flex gap-3 mt-4 no-print">
+            <Button variant="secondary" className="flex-1" onClick={() => { setReceiptOpen(false); focusSearch(); }}>
+              {t('close')}
+            </Button>
+            <Button className="flex-1" icon={<Printer size={16} />} onClick={printReceipt}>
+              {t('print')}
+            </Button>
           </div>
         </Modal>
       )}
@@ -604,7 +909,7 @@ export const CheckoutPage: React.FC = () => {
           {/* Backdrop */}
           <div
             className="absolute inset-0 bg-black/50 backdrop-blur-sm"
-            onClick={() => setHeldDrawerOpen(false)}
+            onClick={() => { setHeldDrawerOpen(false); setConfirmDiscardId(null); focusSearch(); }}
           />
           {/* Panel */}
           <div className="absolute right-0 top-0 h-full w-80 bg-pos-surface border-s border-pos-border flex flex-col shadow-2xl animate-slide-in-right">
@@ -615,7 +920,7 @@ export const CheckoutPage: React.FC = () => {
                 <h3 className="font-semibold">Held Orders</h3>
               </div>
               <button
-                onClick={() => setHeldDrawerOpen(false)}
+                onClick={() => { setHeldDrawerOpen(false); setConfirmDiscardId(null); focusSearch(); }}
                 className="p-1.5 rounded-lg hover:bg-pos-border/40 text-pos-muted hover:text-pos-text transition-colors"
               >
                 <X size={16} />
@@ -657,25 +962,41 @@ export const CheckoutPage: React.FC = () => {
                       <div className="flex items-center justify-between pt-1 border-t border-pos-border/60">
                         <span className="text-sm font-bold text-pos-success">{formatLBP(Math.max(0, heldTotal))}</span>
                         <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              if (window.confirm(`Discard held order ${held.label}?`)) {
-                                discardHeld(held.id);
-                              }
-                            }}
-                            className="flex items-center gap-1 px-2 py-1 rounded-lg border border-pos-danger/40 text-pos-danger text-xs hover:bg-pos-danger/10 transition-colors"
-                          >
-                            <Trash2 size={11} />
-                            Discard
-                          </button>
-                          <button
-                            id={`resume-order-${held.id}`}
-                            onClick={() => handleResumeOrder(held.id)}
-                            className="flex items-center gap-1 px-2 py-1 rounded-lg bg-pos-primary text-white text-xs hover:brightness-110 transition-all"
-                          >
-                            <RotateCcw size={11} />
-                            Resume
-                          </button>
+                          {confirmDiscardId === held.id ? (
+                            <>
+                              <button
+                                onClick={() => setConfirmDiscardId(null)}
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-pos-border text-pos-muted text-xs hover:bg-pos-border/40 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                              <button
+                                onClick={() => handleDiscardHeld(held.id)}
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-pos-danger text-white text-xs hover:brightness-110 transition-all"
+                              >
+                                <Trash2 size={11} />
+                                Confirm
+                              </button>
+                            </>
+                          ) : (
+                            <>
+                              <button
+                                onClick={() => setConfirmDiscardId(held.id)}
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg border border-pos-danger/40 text-pos-danger text-xs hover:bg-pos-danger/10 transition-colors"
+                              >
+                                <Trash2 size={11} />
+                                Discard
+                              </button>
+                              <button
+                                id={`resume-order-${held.id}`}
+                                onClick={() => handleResumeOrder(held.id)}
+                                className="flex items-center gap-1 px-2 py-1 rounded-lg bg-pos-primary text-white text-xs hover:brightness-110 transition-all"
+                              >
+                                <RotateCcw size={11} />
+                                Resume
+                              </button>
+                            </>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -686,12 +1007,193 @@ export const CheckoutPage: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ── Predefined Items Dialog ─────────────────────────────────────── */}
+      <Modal
+        open={showPredefined}
+        onClose={() => { setShowPredefined(false); setEditingId(null); setPredSearch(''); focusSearch(); }}
+        title={t('predef_title')}
+        size="xl"
+      >
+        <div className="space-y-4">
+          {/* Description */}
+          <p className="text-xs text-pos-muted">
+            {t('predef_subtitle')}
+          </p>
+
+          {/* Search within predefined */}
+          <div className="relative">
+            <Search size={15} className="absolute start-3 top-1/2 -translate-y-1/2 text-pos-muted" />
+            <input
+              className="input ps-9 text-sm"
+              placeholder={t('predef_filter_ph')}
+              value={predSearch}
+              onChange={e => setPredSearch(e.target.value)}
+            />
+            {predSearch && (
+              <button
+                onClick={() => setPredSearch('')}
+                className="absolute end-3 top-1/2 -translate-y-1/2 text-pos-muted hover:text-pos-text"
+              >
+                <X size={14} />
+              </button>
+            )}
+          </div>
+
+          {/* Items grid */}
+          <div className="max-h-[340px] overflow-y-auto pr-1 space-y-2">
+            {filteredPredefined.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-3 text-pos-muted">
+                <ListChecks size={38} strokeWidth={1.2} />
+                <p className="text-sm text-center">
+                  {predefinedItems.length === 0
+                    ? t('predef_empty')
+                    : t('predef_no_match')}
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {filteredPredefined.map(item => (
+                  <div
+                    key={item.id}
+                    className="group bg-pos-bg border border-pos-border rounded-xl p-3 flex items-center gap-3 hover:border-pos-primary/40 transition-all"
+                  >
+                    {editingId === item.id ? (
+                      /* ── Inline edit form ── */
+                      <div className="flex-1 space-y-2">
+                        <input
+                          className="input text-sm w-full"
+                          value={editName}
+                          onChange={e => setEditName(e.target.value)}
+                          onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingId(null); }}
+                          autoFocus
+                          placeholder={t('predef_item_name_edit_ph')}
+                        />
+                        <div className="flex gap-2 items-center">
+                          <input
+                            className="input text-sm font-mono flex-1"
+                            type="text"
+                            inputMode="numeric"
+                            value={editPriceDisplay}
+                            onChange={e => {
+                              const s = e.target.value.replace(/,/g, '').replace(/[^0-9]/g, '');
+                              setEditPrice(s);
+                              setEditPriceDisplay(s === '' ? '' : Number(s).toLocaleString('en-US'));
+                            }}
+                            onKeyDown={e => { if (e.key === 'Enter') commitEdit(); if (e.key === 'Escape') setEditingId(null); }}
+                            placeholder={t('predef_price_edit_ph')}
+                          />
+                          <button
+                            onClick={commitEdit}
+                            className="w-8 h-8 flex items-center justify-center rounded-lg bg-pos-primary text-white hover:brightness-110 transition-all"
+                          >
+                            <Check size={14} />
+                          </button>
+                          <button
+                            onClick={() => setEditingId(null)}
+                            className="w-8 h-8 flex items-center justify-center rounded-lg border border-pos-border text-pos-muted hover:text-pos-text transition-colors"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* ── Normal row ── */
+                      <>
+                        <button
+                          onClick={() => addPredefinedToCart(item)}
+                          className="flex-1 text-start min-w-0"
+                        >
+                          <p className="text-sm font-medium truncate group-hover:text-pos-primary transition-colors">{item.name}</p>
+                          <p className="text-xs font-mono text-pos-success">{formatLBP(item.price_lbp)}</p>
+                          <p className="text-xs text-pos-muted/70">{formatUSD(lbpToUsd(item.price_lbp, rate))}</p>
+                        </button>
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                          <button
+                            onClick={() => addPredefinedToCart(item)}
+                            title="Add to cart"
+                            className="w-7 h-7 flex items-center justify-center rounded-lg bg-pos-primary/15 text-pos-primary hover:bg-pos-primary hover:text-white transition-all"
+                          >
+                            <ShoppingCart size={13} />
+                          </button>
+                          <button
+                            onClick={() => startEdit(item)}
+                            title="Edit"
+                            className="w-7 h-7 flex items-center justify-center rounded-lg bg-pos-border/60 text-pos-muted hover:bg-pos-border hover:text-pos-text transition-all"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              if (window.confirm(`${t('predef_delete_confirm')} "${item.name}"?`)) deletePredefinedItem(item.id);
+                            }}
+                            title="Delete"
+                            className="w-7 h-7 flex items-center justify-center rounded-lg bg-pos-danger/10 text-pos-danger hover:bg-pos-danger hover:text-white transition-all"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Add new predefined item ── */}
+          <div className="border-t border-pos-border pt-4">
+            <p className="text-xs font-semibold text-pos-muted uppercase tracking-wide mb-3">{t('predef_add_section')}</p>
+            <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto_auto] gap-2 items-end">
+              <div>
+                <label className="text-xs text-pos-muted block mb-1">{t('predef_item_name_label')}</label>
+                <input
+                  className="input text-sm"
+                  placeholder={t('predef_name_ph')}
+                  value={predNewName}
+                  onChange={e => setPredNewName(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') addPredefinedItem(); }}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-pos-muted block mb-1">{t('predef_price_label')}</label>
+                <input
+                  className="input text-sm font-mono w-36"
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="0"
+                  value={predNewPriceDisplay}
+                  onChange={e => {
+                    const s = e.target.value.replace(/,/g, '').replace(/[^0-9]/g, '');
+                    setPredNewPrice(s);
+                    setPredNewPriceDisplay(s === '' ? '' : Number(s).toLocaleString('en-US'));
+                  }}
+                  onKeyDown={e => { if (e.key === 'Enter') addPredefinedItem(); }}
+                />
+              </div>
+              <button
+                onClick={addPredefinedItem}
+                disabled={!predNewName.trim() || !predNewPrice}
+                className="flex items-center justify-center gap-1.5 h-9 px-4 rounded-lg bg-pos-primary text-white text-sm font-medium hover:brightness-110 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+              >
+                <Plus size={15} /> {t('predef_add_btn')}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div className="flex justify-end mt-5">
+          <Button variant="secondary" onClick={() => { setShowPredefined(false); setEditingId(null); setPredSearch(''); focusSearch(); }}>
+            {t('close')}
+          </Button>
+        </div>
+      </Modal>
     </div>
   );
 };
 
 const ShoppingCartIcon = () => (
-  <svg width="48" height="48" fill="none" stroke="#475569" strokeWidth="1.5" viewBox="0 0 24 24">
+  <svg width="48" height="48" fill="none" stroke="#94a3b8" strokeWidth="1.5" viewBox="0 0 24 24">
     <path d="M6 2L3 6v14a2 2 0 002 2h14a2 2 0 002-2V6l-3-4z" />
     <line x1="3" y1="6" x2="21" y2="6" />
     <path d="M16 10a4 4 0 01-8 0" />

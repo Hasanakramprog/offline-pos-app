@@ -31,7 +31,7 @@
   }
 
   ::-webkit-scrollbar-track {
-    @apply bg-pos-surface;
+    @apply bg-pos-bg;
   }
 
   ::-webkit-scrollbar-thumb {
@@ -39,13 +39,13 @@
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-pos-muted;
+    @apply bg-pos-muted/40;
   }
 }
 
 @layer components {
   .card {
-    @apply bg-pos-surface rounded-xl border border-pos-border p-4;
+    @apply bg-pos-surface rounded-xl border border-pos-border p-4 shadow-card;
   }
 
   .btn {
@@ -53,7 +53,7 @@
   }
 
   .btn-primary {
-    @apply btn bg-pos-primary text-pos-bg hover:brightness-110 active:scale-95;
+    @apply btn btn-glow bg-pos-primary text-white hover:brightness-110 active:scale-95 shadow-sm;
   }
 
   .btn-secondary {
@@ -69,7 +69,7 @@
   }
 
   .input {
-    @apply w-full bg-pos-bg border border-pos-border rounded-lg px-3 py-2 text-pos-text placeholder-pos-muted text-sm focus:outline-none focus:border-pos-primary focus:ring-1 focus:ring-pos-primary transition-colors;
+    @apply w-full bg-pos-bg border border-pos-border rounded-lg px-3 py-2 text-pos-text placeholder-pos-muted text-sm focus:outline-none focus:border-pos-primary focus:ring-2 focus:ring-pos-primary/20 transition-colors shadow-soft;
   }
 
   .badge {
@@ -94,12 +94,100 @@
 }
 
 @layer utilities {
-  .animate-fade-in {
-    animation: fadeIn 0.18s ease-out;
+  /* ── Page transition ──────────────────────────────────────── */
+  .animate-page-enter {
+    animation: pageEnter 0.35s cubic-bezier(0.22, 1, 0.36, 1) both;
   }
 
+  /* ── Modal ────────────────────────────────────────────────── */
+  .animate-backdrop {
+    animation: backdropIn 0.25s ease-out both;
+  }
+
+  .animate-modal-panel {
+    animation: modalPanelIn 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* ── Fade in (generic) ────────────────────────────────────── */
+  .animate-fade-in {
+    animation: fadeIn 0.2s ease-out both;
+  }
+
+  /* ── Slide in from right (drawer) ─────────────────────────── */
   .animate-slide-in-right {
-    animation: slideInRight 0.22s cubic-bezier(0.22, 1, 0.36, 1);
+    animation: slideInRight 0.28s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* ── Toast ────────────────────────────────────────────────── */
+  .animate-toast-in {
+    animation: toastIn 0.4s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+
+  /* ── Hover lift for interactive cards ─────────────────────── */
+  .hover-lift {
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+  }
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 25px -5px rgba(0, 0, 0, 0.08), 0 4px 10px -6px rgba(0, 0, 0, 0.04);
+  }
+
+  /* ── Stagger children (1-based) ───────────────────────────── */
+  .stagger-children > *:nth-child(1)  { animation-delay: 0ms;   }
+  .stagger-children > *:nth-child(2)  { animation-delay: 40ms;  }
+  .stagger-children > *:nth-child(3)  { animation-delay: 80ms;  }
+  .stagger-children > *:nth-child(4)  { animation-delay: 120ms; }
+  .stagger-children > *:nth-child(5)  { animation-delay: 160ms; }
+  .stagger-children > *:nth-child(6)  { animation-delay: 200ms; }
+  .stagger-children > *:nth-child(7)  { animation-delay: 240ms; }
+  .stagger-children > *:nth-child(8)  { animation-delay: 280ms; }
+  .stagger-children > *:nth-child(n+9){ animation-delay: 320ms; }
+
+  /* ── Pulse glow for primary buttons ───────────────────────── */
+  .btn-glow {
+    position: relative;
+    overflow: hidden;
+  }
+  .btn-glow::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    opacity: 0;
+    transition: opacity 0.3s ease;
+    box-shadow: 0 0 20px rgba(99, 102, 241, 0.4);
+  }
+  .btn-glow:hover::after {
+    opacity: 1;
+  }
+}
+
+/* ══ Keyframes ═══════════════════════════════════════════════ */
+
+@keyframes pageEnter {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes backdropIn {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes modalPanelIn {
+  from {
+    opacity: 0;
+    transform: scale(0.92) translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
   }
 }
 
@@ -108,7 +196,6 @@
     opacity: 0;
     transform: scale(0.96);
   }
-
   to {
     opacity: 1;
     transform: scale(1);
@@ -120,9 +207,184 @@
     opacity: 0;
     transform: translateX(100%);
   }
-
   to {
     opacity: 1;
     transform: translateX(0);
+  }
+}
+
+@keyframes toastIn {
+  0% {
+    opacity: 0;
+    transform: translateX(80px) scale(0.9);
+  }
+  60% {
+    opacity: 1;
+    transform: translateX(-6px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+/* ══ 80mm Thermal Printer Print Styles ══════════════════════ */
+@media print {
+  /* ── Page setup for 80mm thermal roll ───────────────────── */
+  @page {
+    size: 80mm auto;
+    margin: 0;
+  }
+
+  /* ── Hide everything by default ───────────────────────────── */
+  body * {
+    visibility: hidden !important;
+  }
+
+  /* ── Reset body / html for print ───────────────────────────── */
+  html, body {
+    width: 80mm !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    color: #000 !important;
+  }
+
+  /* ── Strip all modal ancestor wrappers ──────────────────────── */
+  /* The receipt sits inside: modal-backdrop > modal-panel > modal-body */
+  /* We must zero-out every ancestor so they don’t clip or offset content */
+  #receipt-content,
+  #receipt-content *,
+  #receipt-content ~ *       { visibility: hidden !important; }
+
+  /* Reset the modal backdrop (fixed inset-0, p-4) */
+  #receipt-content *,
+  #receipt-content {
+    visibility: visible !important;
+  }
+
+  /* ── Anchor receipt to top-left, fill full paper width ───────── */
+  #receipt-content {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    width: 80mm !important;
+    max-width: 80mm !important;
+    padding: 3mm 2mm !important;
+    margin: 0 !important;
+    box-sizing: border-box !important;
+    font-family: 'Courier New', Courier, monospace !important;
+    font-size: 9pt !important;
+    line-height: 1.35 !important;
+    color: #000 !important;
+    background: #fff !important;
+    /* Break out of any transform/stacking context from the modal */
+    transform: none !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+
+  /* ── Store name header ───────────────────────────────────────── */
+  #receipt-content .receipt-store-name {
+    display: block !important;
+    width: 100% !important;
+    font-size: 13pt !important;
+    font-weight: 700 !important;
+    text-align: center !important;
+    letter-spacing: 0.5px !important;
+    margin-bottom: 1mm !important;
+  }
+
+  /* ── Meta lines (TX, date, cashier) ─────────────────────────── */
+  #receipt-content .receipt-meta,
+  #receipt-content .receipt-cashier {
+    display: block !important;
+    width: 100% !important;
+    font-size: 7.5pt !important;
+    text-align: center !important;
+    color: #333 !important;
+  }
+
+  /* ── Dashed separator ────────────────────────────────────────── */
+  #receipt-content .receipt-divider {
+    display: block !important;
+    width: 100% !important;
+    border: none !important;
+    border-top: 1px dashed #000 !important;
+    margin: 2mm 0 !important;
+  }
+
+  /* ── Item rows ────────────────────────────────────────────────── */
+  #receipt-content .receipt-item {
+    display: flex !important;
+    width: 100% !important;
+    justify-content: space-between !important;
+    font-size: 8.5pt !important;
+    line-height: 1.4 !important;
+    gap: 2mm !important;
+    margin-bottom: 0.5mm !important;
+  }
+
+  #receipt-content .receipt-item-name {
+    flex: 1 !important;
+    white-space: normal !important;
+    word-break: break-word !important;
+    text-align: left !important;
+  }
+
+  #receipt-content .receipt-item-qty {
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    padding: 0 1.5mm !important;
+    text-align: center !important;
+  }
+
+  #receipt-content .receipt-item-price {
+    white-space: nowrap !important;
+    flex-shrink: 0 !important;
+    text-align: right !important;
+    min-width: 16mm !important;
+  }
+
+  /* ── Totals section ───────────────────────────────────────────── */
+  #receipt-content .receipt-total-row {
+    display: flex !important;
+    width: 100% !important;
+    justify-content: space-between !important;
+    font-size: 8.5pt !important;
+    line-height: 1.5 !important;
+  }
+
+  #receipt-content .receipt-total-row.grand-total {
+    font-size: 11pt !important;
+    font-weight: 700 !important;
+    margin-top: 1mm !important;
+  }
+
+  #receipt-content .receipt-total-row.usd-line {
+    font-size: 7.5pt !important;
+    color: #555 !important;
+  }
+
+  /* ── Footer ──────────────────────────────────────────────── */
+  #receipt-content .receipt-footer {
+    font-size: 7.5pt !important;
+    text-align: center !important;
+    color: #444 !important;
+    margin-top: 2mm !important;
+  }
+
+  /* ── Cashier line ────────────────────────────────────────── */
+  #receipt-content .receipt-cashier {
+    font-size: 7.5pt !important;
+    text-align: center !important;
+    color: #333 !important;
+  }
+
+  /* ── Hide UI elements not part of the receipt ────────────── */
+  .no-print {
+    display: none !important;
   }
 }

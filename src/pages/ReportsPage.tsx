@@ -177,14 +177,14 @@ export const ReportsPage: React.FC = () => {
         <h2 className="text-base font-semibold mb-4">{t('revenue_chart')}</h2>
         <ResponsiveContainer width="100%" height={250}>
           <BarChart data={chart}>
-            <CartesianGrid strokeDasharray="3 3" stroke="#334155" />
-            <XAxis dataKey="date" tick={{ fill: '#94a3b8', fontSize: 11 }} />
-            <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} tickFormatter={v => `${(v/1000000).toFixed(1)}M`} />
+            <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+            <XAxis dataKey="date" tick={{ fill: '#64748b', fontSize: 11 }} />
+            <YAxis tick={{ fill: '#64748b', fontSize: 11 }} tickFormatter={v => `${(v/1000000).toFixed(1)}M`} />
             <Tooltip
-              contentStyle={{ background: '#1e293b', border: '1px solid #334155', borderRadius: 8 }}
+              contentStyle={{ background: '#ffffff', border: '1px solid #e2e8f0', borderRadius: 8, boxShadow: '0 4px 6px -1px rgba(0,0,0,.08)' }}
               formatter={(v: number) => [formatLBP(v), 'Revenue']}
             />
-            <Bar dataKey="revenue" fill="#06b6d4" radius={[4, 4, 0, 0]} />
+            <Bar dataKey="revenue" fill="#6366f1" radius={[4, 4, 0, 0]} />
           </BarChart>
         </ResponsiveContainer>
       </div>
