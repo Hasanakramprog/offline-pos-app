@@ -66,7 +66,7 @@ export async function getDailySummary(days = 30) {
   return db.query<{ date: string; transaction_count: number; total_revenue_lbp: number }>(
     `SELECT DATE(created_at) as date,
             COUNT(*) as transaction_count,
-            SUM(total_lbp) as total_revenue_lbp
+            COALESCE(SUM(CASE WHEN payment_method != 'debt' THEN total_lbp ELSE 0 END), 0) as total_revenue_lbp
      FROM sales
      WHERE created_at >= DATE('now', ? || ' days')
      GROUP BY DATE(created_at)
@@ -89,12 +89,29 @@ export async function getTopProducts(days = 30) {
   );
 }
 
+/** Records a debt repayment as cash revenue so it appears on the dashboard. */
+export async function createDebtPaymentRevenue(
+  id: string,
+  userId: string,
+  amountLbp: number,
+  note: string,
+  rate: number
+): Promise<void> {
+  await db.run(
+    `INSERT INTO sales
+       (id, transaction_number, user_id, subtotal_lbp, discount_lbp, total_lbp,
+        usd_to_lbp_rate, payment_method, cash_received_lbp, change_lbp, notes)
+     VALUES (?, ?, ?, ?, 0, ?, ?, 'debt_payment', ?, 0, ?)`,
+    [id, `DPY-${Date.now()}`, userId, amountLbp, amountLbp, rate, amountLbp, note]
+  );
+}
+
 export async function getTodaySummary() {
   const rows = await db.query<{
     transaction_count: number; total_revenue_lbp: number; total_discount_lbp: number;
   }>(
     `SELECT COUNT(*) as transaction_count,
-            COALESCE(SUM(total_lbp),0)    as total_revenue_lbp,
+            COALESCE(SUM(CASE WHEN payment_method != 'debt' THEN total_lbp ELSE 0 END), 0) as total_revenue_lbp,
             COALESCE(SUM(discount_lbp),0) as total_discount_lbp
      FROM sales WHERE DATE(created_at) = DATE('now')`
   );

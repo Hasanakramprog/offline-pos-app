@@ -211,8 +211,9 @@ ipcMain.handle('db:exec', (_e, sql) => {
 
 ipcMain.handle('file:backup', async () => {
   const result = await dialog.showSaveDialog(mainWindow, {
-    defaultPath: `minimarket-backup-${new Date().toISOString().split('T')[0]}.db`,
-    filters: [{ name: 'Database', extensions: ['db'] }],
+    title: 'Export Database Backup',
+    defaultPath: `pos-backup-${new Date().toISOString().slice(0, 10)}.db`,
+    filters: [{ name: 'POS Database', extensions: ['db'] }],
   });
   if (!result.canceled && result.filePath) {
     persistDB();
@@ -220,6 +221,30 @@ ipcMain.handle('file:backup', async () => {
     return result.filePath;
   }
   return null;
+});
+
+ipcMain.handle('file:restore', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Import Database Backup',
+    filters: [{ name: 'POS Database', extensions: ['db'] }],
+    properties: ['openFile'],
+  });
+  if (result.canceled || !result.filePaths.length) return { success: false, cancelled: true };
+  const srcPath = result.filePaths[0];
+  try {
+    // Replace live db file on disk
+    fs.copyFileSync(srcPath, dbPath);
+    // Re-initialize sql.js from the restored file
+    const initSqlJs = require('sql.js');
+    const SQL = await initSqlJs();
+    const fileBuffer = fs.readFileSync(dbPath);
+    db = new SQL.Database(fileBuffer);
+    console.log('[RESTORE] Database restored from:', srcPath);
+    return { success: true };
+  } catch (err) {
+    console.error('[RESTORE] Error:', err);
+    return { success: false, error: err.message };
+  }
 });
 
 ipcMain.handle('system:version', () => app.getVersion());

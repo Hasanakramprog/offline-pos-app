@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Search, Plus, Minus, Trash2, CreditCard, X, Printer, Image, PackagePlus, Check, PauseCircle, History, Clock, RotateCcw, ListChecks, Pencil, ShoppingCart } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, CreditCard, X, Printer, Image, PackagePlus, Check, PauseCircle, History, Clock, RotateCcw, ListChecks, Pencil, ShoppingCart, Users, UserPlus } from 'lucide-react';
 import { searchProducts, getProductByBarcode } from '../services/products';
 import { createSale } from '../services/sales';
+import { getDebtCustomersWithBalance, addDebtEntry, createDebtCustomer } from '../services/debts';
 import { useCartStore } from '../store/cartStore';
 import { useAuthStore } from '../store/authStore';
 import { useSettingsStore } from '../store/settingsStore';
@@ -11,7 +12,7 @@ import { Modal } from '../components/Common/Modal';
 import { Button } from '../components/Common/Button';
 import { ImageLightbox } from '../components/Common/ImageLightbox';
 import { useLang } from '../i18n/LangContext';
-import type { Product, SaleWithItems } from '../types';
+import type { Product, SaleWithItems, DebtCustomerWithBalance } from '../types';
 
 export const CheckoutPage: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -27,6 +28,16 @@ export const CheckoutPage: React.FC = () => {
   const [processing, setProcessing] = useState(false);
   const [discountInput, setDiscountInput] = useState('');
   const [lightboxImg, setLightboxImg] = useState<{ src: string; alt: string } | null>(null);
+
+  // ── Debt payment mode ──────────────────────────────────────────────────
+  const [paymentMode, setPaymentMode] = useState<'cash' | 'debt'>('cash');
+  const [debtCustomers, setDebtCustomers] = useState<DebtCustomerWithBalance[]>([]);
+  const [debtSearch, setDebtSearch] = useState('');
+  const [selectedCustomer, setSelectedCustomer] = useState<DebtCustomerWithBalance | null>(null);
+  const [showNewCust, setShowNewCust] = useState(false);
+  const [newCustName, setNewCustName] = useState('');
+  const [newCustPhone, setNewCustPhone] = useState('');
+  const [creatingCust, setCreatingCust] = useState(false);
 
   // ── Custom item ────────────────────────────────────────────────────────
   const [showCustom, setShowCustom] = useState(false);
@@ -370,8 +381,106 @@ export const CheckoutPage: React.FC = () => {
     }
   };
 
+  // ── Load debt customers when payment modal opens ─────────────────────
+  useEffect(() => {
+    if (paymentOpen) {
+      getDebtCustomersWithBalance().then(setDebtCustomers);
+      // Reset debt state each time modal opens
+      setPaymentMode('cash');
+      setDebtSearch('');
+      setSelectedCustomer(null);
+      setShowNewCust(false);
+      setNewCustName('');
+      setNewCustPhone('');
+    }
+  }, [paymentOpen]);
+
+  const handleCreateAndSelectCustomer = async () => {
+    if (!newCustName.trim()) { toast.error(t('customer_name_req')); return; }
+    setCreatingCust(true);
+    try {
+      const id = crypto.randomUUID();
+      await createDebtCustomer({
+        id,
+        name: newCustName.trim(),
+        phone: newCustPhone.trim() || undefined,
+      });
+      const all = await getDebtCustomersWithBalance();
+      setDebtCustomers(all);
+      const created = all.find(c => c.id === id) ?? null;
+      setSelectedCustomer(created);
+      setShowNewCust(false);
+      setNewCustName('');
+      setNewCustPhone('');
+      toast.success(t('customer_added'));
+    } catch {
+      toast.error(t('failed_to_add_cust'));
+    } finally {
+      setCreatingCust(false);
+    }
+  };
+
   const handleCompleteSale = async () => {
     if (items.length === 0) { toast.warning('Cart is empty'); return; }
+
+    // ── Debt mode ─────────────────────────────────────────────────────────
+    if (paymentMode === 'debt') {
+      if (!selectedCustomer) { toast.error(t('select_customer_first')); return; }
+      setProcessing(true);
+      try {
+        const saleId = crypto.randomUUID();
+        const txNumber = generateTxNumber();
+        await createSale(
+          {
+            id: saleId,
+            transaction_number: txNumber,
+            user_id: user!.id,
+            subtotal_lbp: cartSubtotal,
+            discount_lbp: orderDiscount,
+            total_lbp: cartTotal,
+            usd_to_lbp_rate: rate,
+            payment_method: 'debt',
+            cash_received_lbp: 0,
+            change_lbp: 0,
+            notes: selectedCustomer.id,
+          },
+          items
+        );
+        await addDebtEntry({
+          id: crypto.randomUUID(),
+          customer_id: selectedCustomer.id,
+          type: 'debt',
+          amount_lbp: cartTotal,
+          note: `TX: ${txNumber}`,
+          sale_id: saleId,
+          user_id: user!.id,
+        });
+        setLastSale({
+          id: saleId, transaction_number: txNumber, user_id: user!.id,
+          user_name: user!.full_name,
+          subtotal_lbp: cartSubtotal, discount_lbp: orderDiscount, total_lbp: cartTotal,
+          usd_to_lbp_rate: rate, payment_method: 'debt',
+          cash_received_lbp: 0, change_lbp: 0,
+          created_at: new Date().toISOString(), items: items.map((i, idx) => ({
+            id: `${saleId}-${idx}`, sale_id: saleId, product_id: i.product_id,
+            product_name: i.product_name, quantity: i.quantity,
+            unit_price_lbp: i.unit_price_lbp, discount_lbp: i.discount_lbp,
+            line_total_lbp: i.line_total_lbp,
+          })),
+        });
+        clearCart();
+        setPaymentOpen(false);
+        setDiscountInput('');
+        setReceiptOpen(true);
+        toast.success(`${t('debt_charged_success')} — ${selectedCustomer.name}`);
+      } catch (err) {
+        toast.error(t('failed_to_save'));
+        console.error(err);
+      } finally { setProcessing(false); }
+      return;
+    }
+
+    // ── Cash mode ─────────────────────────────────────────────────────────
     if (cashReceivedLbp < cartTotal) { toast.error('Cash received is less than total'); return; }
     setProcessing(true);
     try {
@@ -412,7 +521,7 @@ export const CheckoutPage: React.FC = () => {
       setDiscountInput('');
       setReceiptOpen(true);
       toast.success('Sale completed!');
-      
+
       // Auto-open cash drawer if printer is configured
       if (settings.printer_share_name) {
         window.electronAPI.hardware.openDrawer(settings.printer_share_name).catch(console.error);
@@ -583,7 +692,7 @@ export const CheckoutPage: React.FC = () => {
           <div className="px-5 py-3 border-b border-pos-border flex items-center justify-between gap-2 flex-shrink-0">
             <h2 className="font-semibold">Cart ({items.length} items)</h2>
             {items.length > 0 && (
-              <Button variant="ghost" className="text-xs !py-1 !px-2" onClick={() => { clearCart(); setDiscountInput(''); }}>
+              <Button variant="ghost" className="text-xs !py-1 !px-2" onClick={() => { clearCart(); setDiscountInput(''); focusSearch(); }}>
                 Clear Cart
               </Button>
             )}
@@ -718,79 +827,243 @@ export const CheckoutPage: React.FC = () => {
       </div>
 
       {/* Payment Modal */}
-      <Modal open={paymentOpen} onClose={() => { setPaymentOpen(false); focusSearch(); }} title="Cash Payment" size="sm">
+      <Modal
+        open={paymentOpen}
+        onClose={() => { setPaymentOpen(false); focusSearch(); }}
+        title={t('payment_title')}
+        size="sm"
+      >
         <div className="space-y-4">
+          {/* Total due */}
           <div className="bg-pos-bg rounded-xl p-4 text-center">
-            <p className="text-pos-muted text-sm">Total Due</p>
+            <p className="text-pos-muted text-sm">{t('total_due')}</p>
             <p className="text-3xl font-bold text-pos-success mt-1">{formatLBP(cartTotal)}</p>
             <p className="text-sm text-pos-muted mt-0.5">{formatUSD(lbpToUsd(cartTotal, rate))}</p>
           </div>
 
-          {/* Cash currency toggle */}
+          {/* Payment method tabs — LL | USD | Debt */}
           <div className="flex rounded-xl overflow-hidden border border-pos-border">
             <button
-              onClick={() => { setCashMode('LBP'); setCashInput(''); setCashDisplay(''); }}
-              className={`flex-1 py-2 text-sm font-medium transition-colors ${cashMode === 'LBP' ? 'bg-pos-primary text-white' : 'hover:bg-pos-border/40 text-pos-muted'}`}
+              onClick={() => { setPaymentMode('cash'); setCashMode('LBP'); setCashInput(''); setCashDisplay(''); }}
+              className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                paymentMode === 'cash' && cashMode === 'LBP' ? 'bg-pos-primary text-white' : 'hover:bg-pos-border/40 text-pos-muted'
+              }`}
             >
-              Pay in LL
+              {t('pay_in_ll')}
             </button>
             <button
-              onClick={() => { setCashMode('USD'); setCashInput(''); setCashDisplay(''); }}
-              className={`flex-1 py-2 text-sm font-medium transition-colors ${cashMode === 'USD' ? 'bg-pos-primary text-white' : 'hover:bg-pos-border/40 text-pos-muted'}`}
+              onClick={() => { setPaymentMode('cash'); setCashMode('USD'); setCashInput(''); setCashDisplay(''); }}
+              className={`flex-1 py-2 text-sm font-medium transition-colors ${
+                paymentMode === 'cash' && cashMode === 'USD' ? 'bg-pos-primary text-white' : 'hover:bg-pos-border/40 text-pos-muted'
+              }`}
             >
-              Pay in USD
+              {t('pay_in_usd')}
+            </button>
+            <button
+              onClick={() => setPaymentMode('debt')}
+              className={`flex-1 py-2 text-sm font-medium transition-colors flex items-center justify-center gap-1 ${
+                paymentMode === 'debt' ? 'bg-pos-warning text-white' : 'hover:bg-pos-border/40 text-pos-muted'
+              }`}
+            >
+              <Users size={13} />
+              {t('charge_to_debt')}
             </button>
           </div>
 
-          <div>
-            <label className="text-sm font-medium text-pos-muted block mb-1">
-              Cash Received ({cashMode === 'LBP' ? 'LL' : '$'})
-            </label>
-            <input
-              className="input text-xl font-bold text-center font-mono"
-              type="text"
-              inputMode={cashMode === 'LBP' ? 'numeric' : 'decimal'}
-              placeholder={cashMode === 'LBP' ? '0' : '0.00'}
-              value={cashDisplay}
-              onChange={handleCashChange}
-              onKeyDown={e => {
-                if (e.key === 'Enter') {
-                  if (cashReceivedLbp >= cartTotal) handleCompleteSale();
-                  else toast.error('Cash received is less than total');
-                }
-              }}
-              autoFocus
-            />
-            {cashMode === 'USD' && cashInputNum > 0 && (
-              <p className="text-xs text-pos-muted mt-1 text-center">
-                = {formatLBP(usdToLbp(cashInputNum, rate))}
-              </p>
-            )}
-          </div>
-
-          {cashInputNum > 0 && (
-            <div className={`flex justify-between items-center p-3 rounded-xl ${changeLbp >= 0 ? 'bg-pos-success/10' : 'bg-pos-danger/10'}`}>
-              <span className="text-sm font-medium">Change</span>
-              <div className="text-right">
-                <p className={`font-bold ${changeLbp >= 0 ? 'text-pos-success' : 'text-pos-danger'}`}>
-                  {formatLBP(changeLbp)}
-                </p>
-                <p className="text-xs text-pos-muted">{formatUSD(lbpToUsd(changeLbp, rate))}</p>
+          {/* ── CASH PANEL ─────────────────────────────────────────────── */}
+          {paymentMode === 'cash' && (
+            <>
+              <div>
+                <label className="text-sm font-medium text-pos-muted block mb-1">
+                  {t('cash_received')} ({cashMode === 'LBP' ? 'LL' : '$'})
+                </label>
+                <input
+                  className="input text-xl font-bold text-center font-mono"
+                  type="text"
+                  inputMode={cashMode === 'LBP' ? 'numeric' : 'decimal'}
+                  placeholder={cashMode === 'LBP' ? '0' : '0.00'}
+                  value={cashDisplay}
+                  onChange={handleCashChange}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') {
+                      if (cashReceivedLbp >= cartTotal) handleCompleteSale();
+                      else toast.error('Cash received is less than total');
+                    }
+                  }}
+                  autoFocus
+                />
+                {cashMode === 'USD' && cashInputNum > 0 && (
+                  <p className="text-xs text-pos-muted mt-1 text-center">
+                    = {formatLBP(usdToLbp(cashInputNum, rate))}
+                  </p>
+                )}
               </div>
+              {cashInputNum > 0 && (
+                <div className={`flex justify-between items-center p-3 rounded-xl ${
+                  changeLbp >= 0 ? 'bg-pos-success/10' : 'bg-pos-danger/10'
+                }`}>
+                  <span className="text-sm font-medium">{t('change')}</span>
+                  <div className="text-right">
+                    <p className={`font-bold ${changeLbp >= 0 ? 'text-pos-success' : 'text-pos-danger'}`}>
+                      {formatLBP(changeLbp)}
+                    </p>
+                    <p className="text-xs text-pos-muted">{formatUSD(lbpToUsd(changeLbp, rate))}</p>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          {/* ── DEBT PANEL ─────────────────────────────────────────────── */}
+          {paymentMode === 'debt' && (
+            <div className="space-y-3">
+              {/* Customer search */}
+              <div>
+                <label className="text-sm font-medium text-pos-muted block mb-1.5">
+                  {t('select_customer')}
+                </label>
+                <div className="relative">
+                  <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-pos-muted" />
+                  <input
+                    className="input pl-9 text-sm"
+                    placeholder={t('search_customer_ph')}
+                    value={debtSearch}
+                    onChange={e => setDebtSearch(e.target.value)}
+                    autoFocus
+                  />
+                  {debtSearch && (
+                    <button onClick={() => setDebtSearch('')}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-pos-muted hover:text-pos-text">
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {/* Customer list */}
+              <div className="max-h-44 overflow-y-auto space-y-1 rounded-xl border border-pos-border p-1">
+                {debtCustomers
+                  .filter(c => !debtSearch || c.name.toLowerCase().includes(debtSearch.toLowerCase()) || (c.phone ?? '').includes(debtSearch))
+                  .map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => setSelectedCustomer(c)}
+                      className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-left transition-all ${
+                        selectedCustomer?.id === c.id
+                          ? 'bg-pos-warning/15 border border-pos-warning/40'
+                          : 'hover:bg-pos-border/40 border border-transparent'
+                      }`}
+                    >
+                      <div className="w-8 h-8 rounded-full bg-pos-border flex items-center justify-center flex-shrink-0 text-sm font-bold">
+                        {c.name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{c.name}</p>
+                        {c.phone && <p className="text-xs text-pos-muted">{c.phone}</p>}
+                      </div>
+                      {c.balance_lbp > 0 && (
+                        <span className="text-xs font-bold text-pos-danger flex-shrink-0">
+                          {formatLBP(c.balance_lbp)}
+                        </span>
+                      )}
+                      {selectedCustomer?.id === c.id && (
+                        <Check size={14} className="text-pos-warning flex-shrink-0" />
+                      )}
+                    </button>
+                  ))
+                }
+                {debtCustomers.filter(c => !debtSearch || c.name.toLowerCase().includes(debtSearch.toLowerCase()) || (c.phone ?? '').includes(debtSearch)).length === 0 && (
+                  <p className="text-center text-pos-muted text-sm py-4">{t('no_customers_found')}</p>
+                )}
+              </div>
+
+              {/* Selected customer badge */}
+              {selectedCustomer && (
+                <div className="flex items-center gap-2 px-3 py-2 bg-pos-warning/10 border border-pos-warning/30 rounded-lg">
+                  <Check size={14} className="text-pos-warning flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-pos-warning truncate">{selectedCustomer.name}</p>
+                    {selectedCustomer.balance_lbp > 0 && (
+                      <p className="text-xs text-pos-muted">
+                        {t('current_balance')}: {formatLBP(selectedCustomer.balance_lbp)}
+                      </p>
+                    )}
+                  </div>
+                  <button onClick={() => setSelectedCustomer(null)} className="text-pos-muted hover:text-pos-text">
+                    <X size={13} />
+                  </button>
+                </div>
+              )}
+
+              {/* New customer toggle */}
+              <button
+                onClick={() => setShowNewCust(v => !v)}
+                className="flex items-center gap-1.5 text-xs text-pos-primary hover:brightness-110 transition-colors font-medium"
+              >
+                <UserPlus size={13} />
+                {t('new_customer_inline')}
+              </button>
+
+              {/* New customer inline form */}
+              {showNewCust && (
+                <div className="bg-pos-bg border border-pos-primary/30 rounded-xl p-3 space-y-2">
+                  <div>
+                    <label className="text-xs text-pos-muted block mb-1">{t('customer_name_label')}</label>
+                    <input
+                      className="input text-sm"
+                      placeholder="Ahmad Khalil"
+                      value={newCustName}
+                      onChange={e => setNewCustName(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter') handleCreateAndSelectCustomer(); }}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-pos-muted block mb-1">{t('customer_phone_label')}</label>
+                    <input
+                      className="input text-sm"
+                      placeholder="+961 xx xxx xxx"
+                      value={newCustPhone}
+                      onChange={e => setNewCustPhone(e.target.value)}
+                    />
+                  </div>
+                  <Button
+                    className="w-full"
+                    loading={creatingCust}
+                    onClick={handleCreateAndSelectCustomer}
+                    icon={<UserPlus size={14} />}
+                  >
+                    {t('create_and_select')}
+                  </Button>
+                </div>
+              )}
             </div>
           )}
         </div>
 
         <div className="flex gap-3 mt-5">
-          <Button variant="secondary" onClick={() => { setPaymentOpen(false); focusSearch(); }} className="flex-1">Cancel</Button>
-          <Button
-            className="flex-1"
-            loading={processing}
-            disabled={cashReceivedLbp < cartTotal}
-            onClick={handleCompleteSale}
-          >
-            Complete Sale
+          <Button variant="secondary" onClick={() => { setPaymentOpen(false); focusSearch(); }} className="flex-1">
+            {t('cancel')}
           </Button>
+          {paymentMode === 'cash' ? (
+            <Button
+              className="flex-1"
+              loading={processing}
+              disabled={cashReceivedLbp < cartTotal}
+              onClick={handleCompleteSale}
+            >
+              {t('complete_sale')}
+            </Button>
+          ) : (
+            <Button
+              className="flex-1 !bg-pos-warning hover:brightness-110"
+              loading={processing}
+              disabled={!selectedCustomer}
+              onClick={handleCompleteSale}
+              icon={<Users size={16} />}
+            >
+              {t('charge_debt_btn')}
+            </Button>
+          )}
         </div>
       </Modal>
 

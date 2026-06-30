@@ -2,12 +2,13 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Plus, Trash2, X, Users, Phone, ArrowUpCircle, ArrowDownCircle,
   ChevronRight, Wallet, UserPlus, CheckCircle2,
-  Search, ChevronLeft, ChevronDown, Calendar, Filter,
+  Search, ChevronLeft, ChevronDown, Calendar, Filter, Printer,
 } from 'lucide-react';
 import {
   createDebtCustomer, getDebtCustomersWithBalance,
   addDebtEntry, getCustomerDebtHistory, deleteDebtCustomer, deleteDebtEntry,
 } from '../services/debts';
+import { createDebtPaymentRevenue } from '../services/sales';
 import { useAuthStore } from '../store/authStore';
 import { useLang } from '../i18n/LangContext';
 import { useSettingsStore } from '../store/settingsStore';
@@ -23,7 +24,7 @@ export const DebtsPage: React.FC = () => {
   const { user } = useAuthStore();
   const { settings } = useSettingsStore();
   const rate = settings.usd_to_lbp_rate;
-  const { t } = useLang();
+  const { t, lang } = useLang();
   const canEdit = user?.role === 'admin' || user?.role === 'manager';
 
   const [customers, setCustomers] = useState<DebtCustomerWithBalance[]>([]);
@@ -121,6 +122,16 @@ export const DebtsPage: React.FC = () => {
         note: entryForm.note.trim() || undefined,
         user_id: user!.id,
       });
+      // When a customer pays back their debt, record it as cash revenue
+      if (entryType === 'payment') {
+        await createDebtPaymentRevenue(
+          crypto.randomUUID(),
+          user!.id,
+          amount,
+          entryForm.note.trim() || `${t('type_payment')} — ${selected.name}`,
+          rate
+        );
+      }
       toast.success(entryType === 'debt' ? t('debt_recorded') : t('payment_recorded'));
       setAddEntryOpen(false);
       setEntryForm({ amount: '', note: '' });
@@ -148,6 +159,140 @@ export const DebtsPage: React.FC = () => {
       toast.success(t('entry_deleted'));
       await refreshSelected(selected.id);
     } catch { toast.error(t('failed_to_delete')); }
+  };
+
+  // ── Print debt statement ───────────────────────────────────────────────────
+  const printDebtStatement = () => {
+    if (!selected || history.length === 0) return;
+    const isAr = lang === 'ar';
+    const dir = isAr ? 'rtl' : 'ltr';
+
+    const footerHtml = settings.receipt_footer
+      ? `<hr class="divider"/><p class="center small">${settings.receipt_footer}</p>`
+      : '';
+
+    // Running balance rows — dates & numbers always in English (Gregorian/Miladi)
+    let runningBalance = 0;
+    const entryRows = [...history].reverse().map(entry => {
+      if (entry.type === 'debt')    runningBalance += entry.amount_lbp;
+      if (entry.type === 'payment') runningBalance -= entry.amount_lbp;
+      const isDebt = entry.type === 'debt';
+      const sign = isDebt ? '+' : '-';
+      // Always Gregorian (Miladi), Western numerals
+      const dateStr = new Date(entry.created_at).toLocaleDateString('en-GB', {
+        day: '2-digit', month: '2-digit', year: '2-digit',
+      });
+      // Only the type label changes language; amounts/dates stay English
+      const typeLabel = isDebt
+        ? (isAr ? 'دَين'  : 'Debt')
+        : (isAr ? 'دفعة' : 'Pymt');
+      return `
+        <div class="entry-row">
+          <span class="entry-date">${dateStr}</span>
+          <span class="entry-type ${isDebt ? 'debt-type' : 'pay-type'}">${typeLabel}</span>
+          <span class="entry-amt ${isDebt ? 'debt-clr' : 'pay-clr'}">${sign}${formatLBP(entry.amount_lbp)}</span>
+        </div>
+        ${entry.note ? `<div class="entry-note">${entry.note}</div>` : ''}`;
+    }).join('');
+
+    const totalDebt    = selected.total_debt_lbp;
+    const totalPaid    = selected.total_paid_lbp;
+    const balance      = Math.max(0, selected.balance_lbp);
+
+    const html = `<!DOCTYPE html>
+<html dir="${dir}" lang="${lang}">
+<head>
+  <meta charset="UTF-8"/>
+  <title>${isAr ? 'كشف حساب' : 'Debt Statement'}</title>
+  <style>
+    @page { size: 80mm auto; margin: 0; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+    * { box-sizing: border-box; }
+    body {
+      width: 100%;
+      max-width: 80mm;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 9pt;
+      font-weight: 700;
+      line-height: 1.4;
+      direction: ${dir};
+    }
+    .wrap { width: 100%; box-sizing: border-box; padding: 2mm 14mm 2mm 2mm; }
+    .center { text-align: center; }
+    .store-name { font-size: 13pt; font-weight: 700; text-align: center; letter-spacing: 0.5px; margin-bottom: 1mm; text-transform: uppercase; }
+    .small { font-size: 7.5pt; color: #333; text-align: center; }
+    .divider { border: none; border-top: 1px dashed #000; margin: 2mm 0; width: 100%; display: block; }
+    .row { display: flex; justify-content: space-between; width: 100%; font-size: 8.5pt; line-height: 1.45; gap: 1mm; }
+    .row.grand { font-size: 11pt; font-weight: 700; margin-top: 1mm; }
+    .row.muted { font-size: 7.5pt; color: #555; }
+    .entry-row { display: flex; width: 100%; font-size: 8pt; line-height: 1.5; gap: 1mm; align-items: baseline; }
+    .entry-date { flex-shrink: 0; color: #444; font-size: 7.5pt; min-width: 15mm; }
+    .entry-type { flex-shrink: 0; font-size: 7.5pt; min-width: 8mm; }
+    .entry-amt  { flex: 1; text-align: ${isAr ? 'left' : 'right'}; font-size: 8.5pt; }
+    .entry-note { font-size: 7pt; color: #666; padding-${isAr ? 'right' : 'left'}: 3mm; margin-bottom: 1mm; }
+    .debt-clr { color: #dc2626; } .pay-clr { color: #16a34a; }
+    .debt-type { color: #dc2626; } .pay-type { color: #16a34a; }
+    .col-hdr { display: flex; width: 100%; font-size: 7.5pt; color: #555; margin-bottom: 1mm; gap: 1mm; }
+  </style>
+</head>
+<body><div class="wrap">
+  <p class="store-name">${settings.store_name}</p>
+  <p class="small">${isAr ? 'كشف حساب — ديون العميل' : 'Debt Statement'}</p>
+  <p class="small" style="font-size:9pt;font-weight:700;margin:1mm 0">${selected.name}</p>
+  ${selected.phone ? `<p class="small">${selected.phone}</p>` : ''}
+  <p class="small">${isAr ? 'تاريخ الطباعة' : 'Printed'}: ${new Date().toLocaleString('en-GB')}</p>
+  <hr class="divider"/>
+  <div class="col-hdr">
+    <span class="entry-date">${isAr ? 'التاريخ' : 'Date'}</span>
+    <span style="min-width:8mm">${isAr ? 'نوع' : 'Type'}</span>
+    <span style="flex:1;text-align:${isAr ? 'left' : 'right'}">${isAr ? 'المبلغ' : 'Amount'}</span>
+  </div>
+  ${entryRows}
+  <hr class="divider"/>
+  <div class="row" style="font-size:8pt;color:#555">
+    <span>${isAr ? 'إجمالي الديون' : 'Total Charged'}</span>
+    <span style="color:#dc2626">${formatLBP(totalDebt)}</span>
+  </div>
+  <div class="row" style="font-size:8pt;color:#555">
+    <span>${isAr ? 'إجمالي المدفوع' : 'Total Paid'}</span>
+    <span style="color:#16a34a">${formatLBP(totalPaid)}</span>
+  </div>
+  <hr class="divider"/>
+  <div class="row grand">
+    <span>${isAr ? 'الرصيد المستحق' : 'Balance Due'}</span>
+    <span style="color:${balance > 0 ? '#dc2626' : '#16a34a'}">${formatLBP(balance)}</span>
+  </div>
+  <div class="row muted">
+    <span></span>
+    <span>≈ ${formatUSD(lbpToUsd(balance, rate))}</span>
+  </div>
+  ${footerHtml}
+</div></body>
+</html>`;
+
+    // Use Electron's silent print via IPC (same as CheckoutPage)
+    const api = (window as any).electronAPI?.print;
+    if (api?.receipt) {
+      api.getPrinters?.().then((printers: any[]) => {
+        console.log('[DEBTS] Available printers:', printers);
+      });
+      const printerName = settings.printer_share_name || undefined;
+      api.receipt(html, printerName).then((result: any) => {
+        if (!result?.success) {
+          console.error('Print failed:', result?.error);
+          toast.error('Print failed: ' + (result?.error ?? 'unknown'));
+        }
+      });
+    } else {
+      // Fallback for browser dev mode
+      const w = window.open('', '_blank', 'width=320,height=600');
+      if (!w) return;
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      setTimeout(() => { w.print(); w.close(); }, 300);
+    }
   };
 
   // ── Helpers ────────────────────────────────────────────────────────────────
@@ -332,6 +477,17 @@ export const DebtsPage: React.FC = () => {
                 </p>
                 <p className="text-xs text-pos-muted">{formatUSD(lbpToUsd(Math.max(0, selected.balance_lbp), rate))}</p>
               </div>
+              {/* Print statement button */}
+              {history.length > 0 && (
+                <button
+                  onClick={printDebtStatement}
+                  title={lang === 'ar' ? 'طباعة كشف الحساب' : 'Print Statement'}
+                  className="ms-2 flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-pos-border text-pos-muted hover:text-pos-text hover:bg-pos-border/40 text-xs font-medium transition-all"
+                >
+                  <Printer size={14} />
+                  <span className="hidden sm:inline">{lang === 'ar' ? 'طباعة' : 'Print'}</span>
+                </button>
+              )}
               {canEdit && (
                 <div className="flex flex-col gap-2 ms-4">
                   <button

@@ -8,7 +8,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     exec:  (sql)         => ipcRenderer.invoke('db:exec',  sql),
   },
   file: {
-    backup: () => ipcRenderer.invoke('file:backup'),
+    backup:  () => ipcRenderer.invoke('file:backup'),
+    restore: () => ipcRenderer.invoke('file:restore'),
   },
   system: {
     getAppVersion: () => ipcRenderer.invoke('system:version'),

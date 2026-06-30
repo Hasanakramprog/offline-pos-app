@@ -76,7 +76,7 @@ export interface Sale {
   discount_lbp: number;
   total_lbp: number;
   usd_to_lbp_rate: number;
-  payment_method: 'cash';
+  payment_method: 'cash' | 'debt' | 'debt_payment';
   cash_received_lbp: number;
   change_lbp: number;
   notes?: string;

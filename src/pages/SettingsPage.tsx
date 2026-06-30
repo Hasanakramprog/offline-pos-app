@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Save, RefreshCw, Globe } from 'lucide-react';
+import { Save, RefreshCw, Globe, Download, Upload, AlertTriangle, RotateCcw } from 'lucide-react';
 import { useSettingsStore } from '../store/settingsStore';
 import { useAuthStore } from '../store/authStore';
 import { toast } from '../store/toastStore';
@@ -34,6 +34,8 @@ export const SettingsPage: React.FC = () => {
     printer_share_name: '',
   });
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [restoreSuccess, setRestoreSuccess] = useState(false);
 
   useEffect(() => {
     setForm({
@@ -178,19 +180,95 @@ export const SettingsPage: React.FC = () => {
           </div>
         </Section>
 
-        {/* ── 💾 Backup ────────────────────────────────────────────── */}
+        {/* ── 💾 Backup & Restore ───────────────────────────────── */}
         <Section title={t('section_backup')}>
           <p className="text-sm text-pos-muted">{t('backup_desc')}</p>
-          <Button
-            variant="secondary"
-            onClick={async () => {
-              const path = await window.electronAPI.file.backup();
-              if (path) toast.success(`${t('backup_saved')} ${path}`);
-              else toast.info(t('backup_cancelled'));
-            }}
-          >
-            {t('export_backup')}
-          </Button>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            {/* ── Export ── */}
+            <div className="rounded-xl border border-pos-border p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-pos-success/15 flex items-center justify-center flex-shrink-0">
+                  <Download size={16} className="text-pos-success" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold">{t('export_backup')}</p>
+                  <p className="text-xs text-pos-muted">.db file</p>
+                </div>
+              </div>
+              <Button
+                className="w-full !bg-pos-success/15 !text-pos-success hover:!bg-pos-success/25 border border-pos-success/30"
+                icon={<Download size={15} />}
+                onClick={async () => {
+                  const path = await (window as any).electronAPI.file.backup();
+                  if (path) toast.success(`${t('backup_saved')} ${path}`);
+                  else toast.info(t('backup_cancelled'));
+                }}
+              >
+                {t('export_backup')}
+              </Button>
+            </div>
+
+            {/* ── Import / Restore ── */}
+            <div className="rounded-xl border border-pos-danger/30 bg-pos-danger/5 p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-lg bg-pos-danger/15 flex items-center justify-center flex-shrink-0">
+                  <Upload size={16} className="text-pos-danger" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-pos-danger">{t('import_backup')}</p>
+                  <p className="text-xs text-pos-muted">{t('import_backup_desc')}</p>
+                </div>
+              </div>
+
+              {restoreSuccess ? (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-pos-success/10 border border-pos-success/30 rounded-lg">
+                    <span className="text-xs text-pos-success font-medium">{t('import_success')}</span>
+                  </div>
+                  <Button
+                    className="w-full"
+                    icon={<RotateCcw size={15} />}
+                    onClick={() => window.location.reload()}
+                  >
+                    {t('reload_app')}
+                  </Button>
+                </div>
+              ) : (
+                <Button
+                  className="w-full !bg-pos-danger/15 !text-pos-danger hover:!bg-pos-danger/25 border border-pos-danger/30"
+                  icon={importing ? undefined : <Upload size={15} />}
+                  loading={importing}
+                  onClick={async () => {
+                    if (!window.confirm(t('import_confirm'))) return;
+                    setImporting(true);
+                    try {
+                      const result = await (window as any).electronAPI.file.restore();
+                      if (result?.cancelled) { setImporting(false); return; }
+                      if (result?.success) {
+                        setRestoreSuccess(true);
+                        toast.success(t('import_success'));
+                      } else {
+                        toast.error(`${t('import_failed')} ${result?.error ?? 'unknown'}`);
+                      }
+                    } catch (err: any) {
+                      toast.error(`${t('import_failed')} ${err?.message ?? 'unknown'}`);
+                    } finally {
+                      setImporting(false);
+                    }
+                  }}
+                >
+                  {t('import_backup')}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          {/* Warning note */}
+          <div className="flex items-start gap-2 px-3 py-2 bg-pos-warning/10 border border-pos-warning/20 rounded-lg text-xs text-pos-warning">
+            <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+            <span>{t('import_backup_desc')}</span>
+          </div>
         </Section>
 
         {/* ── 🖨️ Hardware & Printer ─────────────────────────────────── */}

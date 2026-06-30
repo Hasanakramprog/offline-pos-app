@@ -204,6 +204,12 @@ export const translations = {
   export_backup:          { en: 'Export Database Backup', ar: 'تصدير نسخة احتياطية'},
   backup_saved:           { en: 'Backup saved:',          ar: 'تم حفظ النسخة:'    },
   backup_cancelled:       { en: 'Backup cancelled',       ar: 'تم إلغاء النسخة الاحتياطية' },
+  import_backup:          { en: 'Import & Restore Backup', ar: 'استيراد واسترجاع نسخة احتياطية' },
+  import_backup_desc:     { en: 'Restore a previously exported .db file. All current data will be replaced.', ar: 'استرجع ملف .db تم تصديره مسبقاً. سيتم استبدال جميع البيانات الحالية.' },
+  import_confirm:         { en: 'This will REPLACE all current data with the backup. Continue?', ar: 'سيتم استبدال جميع البيانات الحالية بالنسخة الاحتياطية. هل تريد المتابعة؟' },
+  import_success:         { en: 'Database restored! Reload the app to see updated data.', ar: 'تم استرجاع قاعدة البيانات! أعد تشغيل التطبيق لرؤية البيانات المحدثة.' },
+  import_failed:          { en: 'Restore failed:',        ar: 'فشل الاسترجاع:'     },
+  reload_app:             { en: 'Reload App',             ar: 'إعادة تحميل'        },
   section_language:       { en: '🌐 Language',            ar: '🌐 اللغة'          },
   lang_subtitle:          { en: 'Choose your preferred interface language', ar: 'اختر لغة الواجهة المفضلة' },
   lang_english:           { en: 'English',                ar: 'English'           },
@@ -302,6 +308,22 @@ export const translations = {
 
   // ── Receipt ────────────────────────────────────────────────────────────
   cashier:                { en: 'Cashier',                        ar: 'الكاشير'                   },
+
+  // ── Debt Payment (Checkout Modal) ──────────────────────────────────────
+  payment_title:          { en: 'Payment',                        ar: 'الدفع'                      },
+  charge_to_debt:         { en: 'Charge to Debt',                 ar: 'آجل (دَين)'                 },
+  select_customer:        { en: 'Select Customer',                ar: 'اختر العميل'                },
+  search_customer_ph:     { en: 'Search customer…',               ar: 'ابحث عن عميل…'              },
+  no_customers_found:     { en: 'No customers found',             ar: 'لا يوجد عملاء'              },
+  new_customer_inline:    { en: '+ New Customer',                 ar: '+ عميل جديد'               },
+  charge_debt_btn:        { en: 'Charge to Debt',                 ar: 'تسجيل الدين'               },
+  select_customer_first:  { en: 'Please select a customer first', ar: 'اختر عميلاً أولاً'          },
+  debt_charged_success:   { en: 'Debt recorded',                  ar: 'تم تسجيل الدين'            },
+  current_balance:        { en: 'Current balance',                ar: 'الرصيد الحالي'              },
+  creating_customer:      { en: 'Creating…',                      ar: 'جارٍ الإنشاء…'              },
+  customer_name_label:    { en: 'Name *',                         ar: 'الاسم *'                    },
+  customer_phone_label:   { en: 'Phone (optional)',               ar: 'الهاتف (اختياري)'           },
+  create_and_select:      { en: 'Create & Select',               ar: 'إنشاء واختيار'              },
 } as const;
 
 export type TranslationKey = keyof typeof translations;
