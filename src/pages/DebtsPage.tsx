@@ -38,6 +38,17 @@ export const DebtsPage: React.FC = () => {
   const [addEntryOpen, setAddEntryOpen] = useState(false);
   const [entryType, setEntryType] = useState<'debt' | 'payment'>('debt');
 
+  // Confirm dialog
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmMsg, setConfirmMsg] = useState('');
+  const confirmAction = React.useRef<(() => void) | null>(null);
+
+  const askConfirm = (msg: string, action: () => void) => {
+    setConfirmMsg(msg);
+    confirmAction.current = action;
+    setConfirmOpen(true);
+  };
+
   // Forms
   const [custForm, setCustForm] = useState({ name: '', phone: '', notes: '' });
   const [entryForm, setEntryForm] = useState({ amount: '', note: '' });
@@ -141,24 +152,26 @@ export const DebtsPage: React.FC = () => {
     finally { setSaving(false); }
   };
 
-  const handleDeleteCustomer = async (c: DebtCustomerWithBalance) => {
-    if (!window.confirm(`${t('delete_cust_confirm')}`)) return;
-    try {
-      await deleteDebtCustomer(c.id);
-      toast.success(t('customer_deleted'));
-      if (selected?.id === c.id) setSelected(null);
-      await loadCustomers();
-    } catch { toast.error(t('failed_to_delete')); }
+  const handleDeleteCustomer = (c: DebtCustomerWithBalance) => {
+    askConfirm(t('delete_cust_confirm'), async () => {
+      try {
+        await deleteDebtCustomer(c.id);
+        toast.success(t('customer_deleted'));
+        if (selected?.id === c.id) setSelected(null);
+        await loadCustomers();
+      } catch { toast.error(t('failed_to_delete')); }
+    });
   };
 
-  const handleDeleteEntry = async (entryId: string) => {
+  const handleDeleteEntry = (entryId: string) => {
     if (!selected) return;
-    if (!window.confirm(t('delete_entry_confirm'))) return;
-    try {
-      await deleteDebtEntry(entryId);
-      toast.success(t('entry_deleted'));
-      await refreshSelected(selected.id);
-    } catch { toast.error(t('failed_to_delete')); }
+    askConfirm(t('delete_entry_confirm'), async () => {
+      try {
+        await deleteDebtEntry(entryId);
+        toast.success(t('entry_deleted'));
+        await refreshSelected(selected.id);
+      } catch { toast.error(t('failed_to_delete')); }
+    });
   };
 
   // ── Print debt statement ───────────────────────────────────────────────────
@@ -761,6 +774,28 @@ export const DebtsPage: React.FC = () => {
               icon={entryType === 'debt' ? <ArrowUpCircle size={16} /> : <ArrowDownCircle size={16} />}
             >
               {t('save_btn')} {entryType === 'debt' ? t('type_debt') : t('type_payment')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Confirm Delete Dialog ──────────────────────────────────── */}
+      <Modal open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Confirm" size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-pos-text">{confirmMsg}</p>
+          <div className="flex gap-3 pt-1">
+            <Button variant="secondary" className="flex-1" onClick={() => setConfirmOpen(false)}>
+              {t('cancel_btn')}
+            </Button>
+            <Button
+              className="flex-1 !bg-pos-danger hover:!brightness-110"
+              onClick={() => {
+                setConfirmOpen(false);
+                confirmAction.current?.();
+              }}
+              icon={<Trash2 size={15} />}
+            >
+              {t('delete_btn') || 'Delete'}
             </Button>
           </div>
         </div>

@@ -65,6 +65,16 @@ export const CheckoutPage: React.FC = () => {
   const [editPrice, setEditPrice] = useState('');
   const [editPriceDisplay, setEditPriceDisplay] = useState('');
 
+  // Confirm dialog (avoids window.confirm which locks Electron inputs)
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmMsg, setConfirmMsg] = useState('');
+  const confirmAction = useRef<(() => void) | null>(null);
+  const askConfirm = (msg: string, action: () => void) => {
+    setConfirmMsg(msg);
+    confirmAction.current = action;
+    setConfirmOpen(true);
+  };
+
   const savePredefined = (items: PredefItem[]) => {
     setPredefinedItems(items);
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
@@ -119,6 +129,14 @@ export const CheckoutPage: React.FC = () => {
 
   const searchRef = useRef<HTMLInputElement>(null);
   const focusSearch = () => setTimeout(() => searchRef.current?.focus(), 80);
+
+  // ── Global barcode scanner buffer ──────────────────────────────────────
+  // Hardware scanners emit characters very rapidly (< 50 ms between keys).
+  // We buffer those characters globally so that a scan outside the search
+  // box still triggers a barcode lookup instead of opening the payment dialog.
+  const barcodeBuffer = useRef('');
+  const barcodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isScanningRef = useRef(false);
   const {
     items, addItem, removeItem, updateQty, setOrderDiscount,
     orderDiscount, subtotal, total, clearCart,
@@ -266,32 +284,106 @@ export const CheckoutPage: React.FC = () => {
   }, [query]);
 
   // Barcode: Enter key triggers barcode lookup
-  // Empty query + Enter → open payment modal (if cart has items)
+  // Empty query + Space → open payment modal (if cart has items)
   const handleSearchKey = useCallback(async (e: React.KeyboardEvent) => {
-    if (e.key !== 'Enter') return;
-    if (!query.trim()) {
-      if (items.length > 0) setPaymentOpen(true);
+    if (e.key === ' ' || e.key === 'Spacebar') {
+      if (!query.trim() && items.length > 0) { e.preventDefault(); setPaymentOpen(true); }
       return;
     }
+    if (e.key !== 'Enter') return;
+    if (!query.trim()) return; // Space handles payment now
     if (query.trim().length >= 3) {
       const p = await getProductByBarcode(query.trim());
       if (p) { addToCart(p); setQuery(''); setResults([]); }
     }
   }, [query, items]);
 
-  // Global Enter key → open payment (when no modal is open, search is empty, cart has items)
+  // Global barcode scanner interceptor
+  // Captures rapid keystrokes from a hardware scanner when the search input
+  // is NOT focused, performs a barcode lookup on Enter, and prevents the
+  // payment dialog from opening mid-scan.
   useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter') return;
+    const SCAN_TIMEOUT_MS = 80; // reset buffer if gap between keys > 80 ms
+
+    const handleScannerKey = async (e: KeyboardEvent) => {
+      // If focus is already inside the search bar, let normal logic handle it
+      if (document.activeElement === searchRef.current) return;
+      // Ignore modifier-only keys and keys inside other inputs/modals
       if (paymentOpen || receiptOpen || showCustom || showPredefined) return;
-      // Don't hijack Enter inside inputs other than the search bar
       const tag = (e.target as HTMLElement)?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
-      if (items.length > 0) setPaymentOpen(true);
+
+      if (e.key === 'Enter') {
+        const scanned = barcodeBuffer.current.trim();
+        barcodeBuffer.current = '';
+        isScanningRef.current = false;
+        if (barcodeTimer.current) { clearTimeout(barcodeTimer.current); barcodeTimer.current = null; }
+
+        if (scanned.length >= 3) {
+          // Scanned barcode — look it up
+          const p = await getProductByBarcode(scanned);
+          if (p) {
+            addItem({ product_id: p.id, product_name: p.name, unit_price_lbp: p.price_lbp, quantity: 1, discount_lbp: 0, image_url: p.image_url });
+            setQuery('');
+            setResults([]);
+          } else {
+            // Not found — put it in the search box so cashier can see
+            setQuery(scanned);
+            searchRef.current?.focus();
+          }
+        } else if (!isScanningRef.current) {
+          // No buffered scan — Enter outside inputs no longer opens payment
+          // (use Space instead to avoid scanner glitch)
+        }
+        return;
+      }
+
+      // Printable single character — buffer it as part of a barcode
+      // Space is reserved for opening the payment dialog, skip it here.
+      if (e.key.length === 1 && e.key !== ' ') {
+        barcodeBuffer.current += e.key;
+        isScanningRef.current = true;
+        if (barcodeTimer.current) clearTimeout(barcodeTimer.current);
+        // If no more keys arrive within SCAN_TIMEOUT_MS, the scan stalled —
+        // push whatever we have into the search box and reset
+        barcodeTimer.current = setTimeout(() => {
+          const partial = barcodeBuffer.current;
+          barcodeBuffer.current = '';
+          isScanningRef.current = false;
+          if (partial.trim()) {
+            setQuery(partial);
+            searchRef.current?.focus();
+          }
+        }, SCAN_TIMEOUT_MS);
+        // Prevent the character from landing in an unexpected element
+        e.preventDefault();
+      }
+    };
+
+    window.addEventListener('keydown', handleScannerKey);
+    return () => window.removeEventListener('keydown', handleScannerKey);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, paymentOpen, receiptOpen, showCustom, showPredefined]);
+
+  // Global Space key → open payment (when no modal is open, search is empty, cart has items)
+  // Space is used instead of Enter to avoid false triggers from the barcode scanner.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== ' ' && e.key !== 'Spacebar') return;
+      if (paymentOpen || receiptOpen || showCustom || showPredefined) return;
+      const target = e.target as HTMLElement;
+      const tag = target?.tagName;
+      // If it's an input that is NOT our search bar, skip
+      if ((tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') && target !== searchRef.current) return;
+      // If it's the search bar and has text, don't hijack typing
+      if (target === searchRef.current && query.trim()) return;
+      // Don't open payment if a barcode is being buffered
+      if (isScanningRef.current) return;
+      if (items.length > 0) { e.preventDefault(); setPaymentOpen(true); }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
-  }, [items, paymentOpen, receiptOpen, showCustom]);
+  }, [items, paymentOpen, receiptOpen, showCustom, showPredefined, query]);
 
   const addToCart = (p: Product) => {
     addItem({ product_id: p.id, product_name: p.name, unit_price_lbp: p.price_lbp, quantity: 1, discount_lbp: 0, image_url: p.image_url });
@@ -394,6 +486,22 @@ export const CheckoutPage: React.FC = () => {
       setNewCustPhone('');
     }
   }, [paymentOpen]);
+
+  // Space key inside payment dialog → complete sale
+  useEffect(() => {
+    if (!paymentOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== ' ' && e.key !== 'Spacebar') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      // Don't intercept Space if the user is typing in an input
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      e.preventDefault();
+      handleCompleteSale();
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paymentOpen, cashReceivedLbp, cartTotal, paymentMode, selectedCustomer, processing]);
 
   const handleCreateAndSelectCustomer = async () => {
     if (!newCustName.trim()) { toast.error(t('customer_name_req')); return; }
@@ -736,20 +844,20 @@ export const CheckoutPage: React.FC = () => {
                               <p className="text-xs text-pos-muted">{formatLBP(item.unit_price_lbp)} each</p>
                               <p className="text-xs text-pos-muted/70">{formatUSD(lbpToUsd(item.unit_price_lbp, rate))} each</p>
                             </div>
-                            <button onClick={() => removeItem(item.product_id)} className="text-pos-danger hover:brightness-125 flex-shrink-0">
+                            <button onClick={e => { removeItem(item.product_id); e.currentTarget.blur(); }} className="text-pos-danger hover:brightness-125 flex-shrink-0">
                               <Trash2 size={14} />
                             </button>
                           </div>
                           <div className="flex items-center justify-between mt-2">
                             <div className="flex items-center gap-2">
                               <button
-                                onClick={() => updateQty(item.product_id, item.quantity - 1)}
+                                onClick={e => { updateQty(item.product_id, item.quantity - 1); e.currentTarget.blur(); }}
                                 className="w-7 h-7 rounded-lg bg-pos-border flex items-center justify-center hover:bg-pos-muted/30">
                                 <Minus size={12} />
                               </button>
                               <span className="text-sm font-medium w-6 text-center">{item.quantity}</span>
                               <button
-                                onClick={() => updateQty(item.product_id, item.quantity + 1)}
+                                onClick={e => { updateQty(item.product_id, item.quantity + 1); e.currentTarget.blur(); }}
                                 className="w-7 h-7 rounded-lg bg-pos-border flex items-center justify-center hover:bg-pos-muted/30">
                                 <Plus size={12} />
                               </button>
@@ -885,7 +993,8 @@ export const CheckoutPage: React.FC = () => {
                   value={cashDisplay}
                   onChange={handleCashChange}
                   onKeyDown={e => {
-                    if (e.key === 'Enter') {
+                    if (e.key === ' ' || e.key === 'Spacebar') {
+                      e.preventDefault();
                       if (cashReceivedLbp >= cartTotal) handleCompleteSale();
                       else toast.error('Cash received is less than total');
                     }
@@ -1398,7 +1507,7 @@ export const CheckoutPage: React.FC = () => {
                           </button>
                           <button
                             onClick={() => {
-                              if (window.confirm(`${t('predef_delete_confirm')} "${item.name}"?`)) deletePredefinedItem(item.id);
+                              askConfirm(`${t('predef_delete_confirm')} "${item.name}"?`, () => deletePredefinedItem(item.id));
                             }}
                             title="Delete"
                             className="w-7 h-7 flex items-center justify-center rounded-lg bg-pos-danger/10 text-pos-danger hover:bg-pos-danger hover:text-white transition-all"
@@ -1459,6 +1568,28 @@ export const CheckoutPage: React.FC = () => {
           <Button variant="secondary" onClick={() => { setShowPredefined(false); setEditingId(null); setPredSearch(''); focusSearch(); }}>
             {t('close')}
           </Button>
+        </div>
+      </Modal>
+
+      {/* ── Confirm Delete Dialog ──────────────────────────────────── */}
+      <Modal open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Confirm" size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-pos-text">{confirmMsg}</p>
+          <div className="flex gap-3 pt-1">
+            <Button variant="secondary" className="flex-1" onClick={() => setConfirmOpen(false)}>
+              {t('cancel_btn')}
+            </Button>
+            <Button
+              className="flex-1 !bg-pos-danger hover:!brightness-110"
+              onClick={() => {
+                setConfirmOpen(false);
+                confirmAction.current?.();
+              }}
+              icon={<Trash2 size={15} />}
+            >
+              {t('delete_btn') || 'Delete'}
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

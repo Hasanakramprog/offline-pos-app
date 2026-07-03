@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus, Trash2, TrendingDown, Calendar, Tag,
   ChevronDown, Receipt, Search, ChevronLeft, ChevronRight, X,
@@ -47,6 +47,16 @@ export const ExpensesPage: React.FC = () => {
   const [form, setForm] = useState<{ category: string; amount: string; note: string }>({ category: EXPENSE_CATEGORIES[0], amount: '', note: '' });
   const [amountDisplay, setAmountDisplay] = useState('');
   const [saving, setSaving] = useState(false);
+
+  // Confirm dialog (avoids window.confirm which locks Electron inputs)
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmMsg, setConfirmMsg] = useState('');
+  const confirmAction = useRef<(() => void) | null>(null);
+  const askConfirm = (msg: string, action: () => void) => {
+    setConfirmMsg(msg);
+    confirmAction.current = action;
+    setConfirmOpen(true);
+  };
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -114,15 +124,16 @@ export const ExpensesPage: React.FC = () => {
     }
   };
 
-  const handleDelete = async (id: string) => {
-    if (!window.confirm(t('delete_expense_confirm'))) return;
-    try {
-      await deleteExpense(id);
-      toast.success(t('expense_deleted'));
-      await load();
-    } catch {
-      toast.error(t('failed_to_delete'));
-    }
+  const handleDelete = (id: string) => {
+    askConfirm(t('delete_expense_confirm'), async () => {
+      try {
+        await deleteExpense(id);
+        toast.success(t('expense_deleted'));
+        await load();
+      } catch {
+        toast.error(t('failed_to_delete'));
+      }
+    });
   };
 
   const CATEGORY_COLORS: Record<string, string> = {
@@ -418,6 +429,28 @@ export const ExpensesPage: React.FC = () => {
             <Button variant="secondary" className="flex-1" onClick={() => setAddOpen(false)}>Cancel</Button>
             <Button className="flex-1" loading={saving} onClick={handleAdd}
               icon={<Plus size={16} />}> {t('save_expense')} </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── Confirm Delete Dialog ──────────────────────────────────── */}
+      <Modal open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Confirm" size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-pos-text">{confirmMsg}</p>
+          <div className="flex gap-3 pt-1">
+            <Button variant="secondary" className="flex-1" onClick={() => setConfirmOpen(false)}>
+              {t('cancel_btn')}
+            </Button>
+            <Button
+              className="flex-1 !bg-pos-danger hover:!brightness-110"
+              onClick={() => {
+                setConfirmOpen(false);
+                confirmAction.current?.();
+              }}
+              icon={<Trash2 size={15} />}
+            >
+              {t('delete_btn') || 'Delete'}
+            </Button>
           </div>
         </div>
       </Modal>

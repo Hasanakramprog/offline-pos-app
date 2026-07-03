@@ -1,9 +1,10 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Save, RefreshCw, Globe, Download, Upload, AlertTriangle, RotateCcw } from 'lucide-react';
 import { useSettingsStore } from '../store/settingsStore';
 import { useAuthStore } from '../store/authStore';
 import { toast } from '../store/toastStore';
 import { Button } from '../components/Common/Button';
+import { Modal } from '../components/Common/Modal';
 import { useLang } from '../i18n/LangContext';
 
 const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
@@ -36,6 +37,36 @@ export const SettingsPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [restoreSuccess, setRestoreSuccess] = useState(false);
+
+  // Confirm dialog (avoids window.confirm which locks Electron inputs)
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmMsg, setConfirmMsg] = useState('');
+  const confirmAction = useRef<(() => void) | null>(null);
+  const askConfirm = (msg: string, action: () => void) => {
+    setConfirmMsg(msg);
+    confirmAction.current = action;
+    setConfirmOpen(true);
+  };
+
+  const handleRestore = () => {
+    askConfirm(t('import_confirm'), async () => {
+      setImporting(true);
+      try {
+        const result = await (window as any).electronAPI.file.restore();
+        if (result?.cancelled) { setImporting(false); return; }
+        if (result?.success) {
+          setRestoreSuccess(true);
+          toast.success(t('import_success'));
+        } else {
+          toast.error(`${t('import_failed')} ${result?.error ?? 'unknown'}`);
+        }
+      } catch (err: any) {
+        toast.error(`${t('import_failed')} ${err?.message ?? 'unknown'}`);
+      } finally {
+        setImporting(false);
+      }
+    });
+  };
 
   useEffect(() => {
     setForm({
@@ -70,6 +101,7 @@ export const SettingsPage: React.FC = () => {
 
 
   return (
+    <>
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
@@ -239,24 +271,7 @@ export const SettingsPage: React.FC = () => {
                   className="w-full !bg-pos-danger/15 !text-pos-danger hover:!bg-pos-danger/25 border border-pos-danger/30"
                   icon={importing ? undefined : <Upload size={15} />}
                   loading={importing}
-                  onClick={async () => {
-                    if (!window.confirm(t('import_confirm'))) return;
-                    setImporting(true);
-                    try {
-                      const result = await (window as any).electronAPI.file.restore();
-                      if (result?.cancelled) { setImporting(false); return; }
-                      if (result?.success) {
-                        setRestoreSuccess(true);
-                        toast.success(t('import_success'));
-                      } else {
-                        toast.error(`${t('import_failed')} ${result?.error ?? 'unknown'}`);
-                      }
-                    } catch (err: any) {
-                      toast.error(`${t('import_failed')} ${err?.message ?? 'unknown'}`);
-                    } finally {
-                      setImporting(false);
-                    }
-                  }}
+                  onClick={handleRestore}
                 >
                   {t('import_backup')}
                 </Button>
@@ -293,5 +308,28 @@ export const SettingsPage: React.FC = () => {
 
       </div>
     </div>
+
+      {/* ── Confirm Dialog ─────────────────────────────────────────── */}
+      <Modal open={confirmOpen} onClose={() => setConfirmOpen(false)} title="Confirm" size="sm">
+        <div className="space-y-4">
+          <p className="text-sm text-pos-text">{confirmMsg}</p>
+          <div className="flex gap-3 pt-1">
+            <Button variant="secondary" className="flex-1" onClick={() => setConfirmOpen(false)}>
+              {t('cancel_btn')}
+            </Button>
+            <Button
+              className="flex-1 !bg-pos-danger hover:!brightness-110"
+              onClick={() => {
+                setConfirmOpen(false);
+                confirmAction.current?.();
+              }}
+              icon={<Upload size={15} />}
+            >
+              {t('import_backup')}
+            </Button>
+          </div>
+        </div>
+      </Modal>
+    </>
   );
 };
