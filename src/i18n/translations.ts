@@ -324,6 +324,28 @@ export const translations = {
   customer_name_label:    { en: 'Name *',                         ar: 'الاسم *'                    },
   customer_phone_label:   { en: 'Phone (optional)',               ar: 'الهاتف (اختياري)'           },
   create_and_select:      { en: 'Create & Select',               ar: 'إنشاء واختيار'              },
+
+  // ── Cloud Sync ─────────────────────────────────────────────────────────────
+  section_cloud_sync:     { en: '☁️ Cloud Sync',                 ar: '☁️ المزامنة السحابية'        },
+  sync_subtitle:          { en: 'Sync your data to Supabase for real-time web dashboard access', ar: 'زامن بياناتك مع Supabase للوصول إلى لوحة التحكم عبر الويب' },
+  sync_url_label:         { en: 'Supabase Project URL',          ar: 'رابط مشروع Supabase'         },
+  sync_url_ph:            { en: 'https://xxxx.supabase.co',      ar: 'https://xxxx.supabase.co'    },
+  sync_key_label:         { en: 'Service Role Key',              ar: 'مفتاح الخدمة'               },
+  sync_key_ph:            { en: 'eyJhbGciOiJIUzI1NiIsInR…',     ar: 'eyJhbGciOiJIUzI1NiIsInR…'   },
+  sync_key_hint:          { en: 'Use the service_role key (not anon key). Keep this secret.', ar: 'استخدم مفتاح service_role (ليس مفتاح anon). احتفظ به سراً.' },
+  sync_save_btn:          { en: 'Save & Connect',                ar: 'حفظ والاتصال'               },
+  sync_now_btn:           { en: 'Sync Now',                      ar: 'مزامنة الآن'                },
+  sync_status_label:      { en: 'Status',                        ar: 'الحالة'                     },
+  sync_connected:         { en: 'Connected',                     ar: 'متصل'                       },
+  sync_offline:           { en: 'Offline',                       ar: 'غير متصل'                   },
+  sync_not_configured:    { en: 'Not Configured',                ar: 'غير مُهيَّأ'                 },
+  sync_last_label:        { en: 'Last synced',                   ar: 'آخر مزامنة'                 },
+  sync_never:             { en: 'Never',                         ar: 'لم يتم بعد'                 },
+  sync_pending_label:     { en: 'Pending items',                 ar: 'العناصر المعلقة'            },
+  sync_error_label:       { en: 'Last error',                    ar: 'آخر خطأ'                    },
+  sync_saved:             { en: 'Sync credentials saved',        ar: 'تم حفظ بيانات المزامنة'     },
+  sync_flushed:           { en: 'Sync complete',                 ar: 'اكتملت المزامنة'            },
+  sync_flush_failed:      { en: 'Sync failed',                   ar: 'فشلت المزامنة'              },
 } as const;
 
 export type TranslationKey = keyof typeof translations;

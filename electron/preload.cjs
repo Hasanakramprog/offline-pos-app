@@ -25,4 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     receipt: (html, printerName) => ipcRenderer.invoke('print:receipt', html, printerName),
     getPrinters: () => ipcRenderer.invoke('print:getPrinters'),
   },
+  sync: {
+    getStatus:  ()           => ipcRenderer.invoke('sync:status'),
+    configure:  (url, key)   => ipcRenderer.invoke('sync:configure', url, key),
+    flushNow:   ()           => ipcRenderer.invoke('sync:flush'),
+  },
 });

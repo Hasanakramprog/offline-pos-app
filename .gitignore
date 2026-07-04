@@ -6,3 +6,5 @@ release/
 *.exe
 .DS_Store
 app-log.txt
+
+.vercel

@@ -1,11 +1,19 @@
 // ── Global types exposed by Electron preload ──────────────────────────────
+export interface SyncStatus {
+  enabled:      boolean;
+  connected:    boolean;
+  lastSyncAt:   string | null;
+  pendingCount: number;
+  lastError:    string | null;
+}
+
 export interface ElectronAPI {
   database: {
     query: (sql: string, params?: unknown[]) => Promise<unknown[]>;
     run:   (sql: string, params?: unknown[]) => Promise<{ changes: number; lastInsertRowid: number }>;
     exec:  (sql: string) => Promise<boolean>;
   };
-  file: { backup: () => Promise<string | null> };
+  file: { backup: () => Promise<string | null>; restore: () => Promise<{ success: boolean; cancelled?: boolean; error?: string }> };
   system: {
     getAppVersion: () => Promise<string>;
     getUserData:   () => Promise<string>;
@@ -15,6 +23,11 @@ export interface ElectronAPI {
   };
   hardware: {
     openDrawer: (printerName: string) => Promise<{ success: boolean; error?: string }>;
+  };
+  sync: {
+    getStatus:  () => Promise<SyncStatus>;
+    configure:  (url: string, key: string) => Promise<{ success: boolean }>;
+    flushNow:   () => Promise<{ success: boolean; error?: string }>;
   };
 }
 

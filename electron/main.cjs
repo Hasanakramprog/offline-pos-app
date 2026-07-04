@@ -3,6 +3,7 @@ const { app, BrowserWindow, ipcMain, dialog, protocol, net } = require('electron
 const path = require('path');
 const fs = require('fs');
 const url = require('url');
+const sync = require('./sync.cjs');
 
 // Register app:// as a privileged scheme BEFORE app is ready
 // This lets ES module scripts load correctly (file:// blocks them via CORS)
@@ -112,6 +113,8 @@ function dbQuery(sql, params = []) {
 function dbRun(sql, params = []) {
   db.run(sql, params);
   persistDB();
+  // ── Outbox: queue this write for cloud sync ──────────────────
+  _enqueueFromSql(sql, params);
   return { changes: db.getRowsModified(), lastInsertRowid: 0 };
 }
 
@@ -119,6 +122,58 @@ function dbExec(sql) {
   db.run(sql);
   persistDB();
   return true;
+}
+
+// ── Sync queue helper ────────────────────────────────────────────
+// Determines which table is being written and fetches the full
+// row immediately after insert/update so we can enqueue it.
+function _enqueueFromSql(sql, params) {
+  try {
+    const sqlNorm = sql.trim().toUpperCase();
+    const isInsert = sqlNorm.startsWith('INSERT');
+    const isUpdate = sqlNorm.startsWith('UPDATE');
+    const isDelete = sqlNorm.startsWith('DELETE');
+    if (!isInsert && !isUpdate && !isDelete) return;
+
+    // Extract table name
+    let tableName = '';
+    if (isInsert) {
+      const m = sql.match(/INSERT\s+(?:OR\s+\w+\s+)?INTO\s+(\w+)/i);
+      if (m) tableName = m[1];
+    } else if (isUpdate) {
+      const m = sql.match(/UPDATE\s+(\w+)/i);
+      if (m) tableName = m[1];
+    } else if (isDelete) {
+      const m = sql.match(/DELETE\s+FROM\s+(\w+)/i);
+      if (m) tableName = m[1];
+    }
+
+    if (!sync.SYNCED_TABLES.has(tableName)) return;
+
+    // For deletes, just queue the id (first param is usually the id for WHERE id=?)
+    if (isDelete) {
+      // Find the id — look for a UUID-shaped param
+      const recordId = params.find(p => typeof p === 'string' && p.length > 8);
+      if (recordId) {
+        sync.enqueueSync(tableName, 'delete', recordId, { id: recordId });
+      }
+      return;
+    }
+
+    // For insert/update: re-fetch the row from SQLite so we have the full payload
+    const pkCol = tableName === 'settings' ? 'key' : 'id';
+    // The primary key value is the first string param (UUIDs / setting keys)
+    const recordId = params.find(p => typeof p === 'string' && p.length >= 3);
+    if (!recordId) return;
+
+    const rows = dbQuery(`SELECT * FROM ${tableName} WHERE ${pkCol} = ?`, [recordId]);
+    if (rows.length > 0) {
+      sync.enqueueSync(tableName, 'upsert', recordId, rows[0]);
+    }
+  } catch (err) {
+    // Never let sync errors crash the main process
+    console.error('[SYNC] _enqueueFromSql error:', err.message);
+  }
 }
 
 // ─── Window ────────────────────────────────────────────────────────────────
@@ -187,11 +242,17 @@ app.whenReady().then(async () => {
   }
 
   try { await initDatabase(); } catch (err) { console.error('DB init error:', err); }
+  // Start cloud sync engine (after db is ready)
+  try {
+    sync.initSync(db, persistDB, app.getPath('userData'));
+  } catch (err) {
+    console.error('[SYNC] Failed to init sync engine:', err.message);
+  }
   createWindow();
   app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
-app.on('window-all-closed', () => { persistDB(); if (process.platform !== 'darwin') app.quit(); });
-app.on('before-quit', () => persistDB());
+app.on('window-all-closed', () => { persistDB(); sync.stopSync(); if (process.platform !== 'darwin') app.quit(); });
+app.on('before-quit', () => { persistDB(); sync.stopSync(); });
 
 // ─── IPC handlers ──────────────────────────────────────────────────────────
 ipcMain.handle('db:query', (_e, sql, params = []) => {
@@ -252,6 +313,28 @@ ipcMain.handle('system:userData', () => app.getPath('userData'));
 ipcMain.on('window:minimize', () => mainWindow?.minimize());
 ipcMain.on('window:maximize', () => mainWindow?.isMaximized() ? mainWindow.unmaximize() : mainWindow?.maximize());
 ipcMain.on('window:close', () => mainWindow?.close());
+
+// ─── Sync IPC handlers ────────────────────────────────────────────────────
+ipcMain.handle('sync:status', () => {
+  const status = sync.getSyncStatus();
+  // Force through JSON serialisation to strip any non-clonable values
+  try { return JSON.parse(JSON.stringify(status)); }
+  catch { return { enabled: false, connected: true, lastSyncAt: null, pendingCount: 0, lastError: 'Serialisation error' }; }
+});
+
+ipcMain.handle('sync:configure', (_e, url, key) => {
+  sync.configureSyncCredentials(url, key);
+  return { success: true };
+});
+
+ipcMain.handle('sync:flush', async () => {
+  try {
+    await sync.flushQueue();
+    return { success: true };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+});
 
 ipcMain.handle('hardware:open-drawer', async (_e, printerName) => {
   if (!printerName) return { success: false, error: 'No printer specified' };

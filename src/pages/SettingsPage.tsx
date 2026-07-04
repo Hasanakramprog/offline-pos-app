@@ -1,5 +1,5 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { Save, RefreshCw, Globe, Download, Upload, AlertTriangle, RotateCcw } from 'lucide-react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Save, RefreshCw, Globe, Download, Upload, AlertTriangle, RotateCcw, Cloud, Wifi, WifiOff, RefreshCcw } from 'lucide-react';
 import { useSettingsStore } from '../store/settingsStore';
 import { useAuthStore } from '../store/authStore';
 import { toast } from '../store/toastStore';
@@ -34,9 +34,53 @@ export const SettingsPage: React.FC = () => {
     receipt_footer: '',
     printer_share_name: '',
   });
-  const [saving, setSaving] = useState(false);
-  const [importing, setImporting] = useState(false);
+  const [saving, setSaving]             = useState(false);
+  const [importing, setImporting]       = useState(false);
   const [restoreSuccess, setRestoreSuccess] = useState(false);
+
+  // ── Cloud Sync state ────────────────────────────────────────────
+  const [syncUrl, setSyncUrl]           = useState('');
+  const [syncKey, setSyncKey]           = useState('');
+  const [syncKeyVisible, setSyncKeyVisible] = useState(false);
+  const [syncSaving, setSyncSaving]     = useState(false);
+  const [syncFlushing, setSyncFlushing] = useState(false);
+  const [syncStatus, setSyncStatus]     = useState<{
+    enabled: boolean; connected: boolean;
+    lastSyncAt: string | null; pendingCount: number; lastError: string | null;
+  } | null>(null);
+
+  // Poll sync status every 5 seconds when on Settings page
+  const pollSync = useCallback(async () => {
+    if (!window.electronAPI?.sync) return;
+    try { setSyncStatus(await window.electronAPI.sync.getStatus()); } catch { /* ignore */ }
+  }, []);
+
+  useEffect(() => {
+    pollSync();
+    const id = setInterval(pollSync, 5000);
+    return () => clearInterval(id);
+  }, [pollSync]);
+
+  const handleSyncSave = async () => {
+    if (!syncUrl.trim() || !syncKey.trim()) { toast.error('Both URL and key are required'); return; }
+    setSyncSaving(true);
+    try {
+      await window.electronAPI.sync.configure(syncUrl.trim(), syncKey.trim());
+      toast.success(t('sync_saved'));
+      setTimeout(pollSync, 1500);
+    } catch (err: any) { toast.error(err?.message ?? 'Failed'); }
+    finally { setSyncSaving(false); }
+  };
+
+  const handleSyncNow = async () => {
+    setSyncFlushing(true);
+    try {
+      const res = await window.electronAPI.sync.flushNow();
+      if (res.success) { toast.success(t('sync_flushed')); pollSync(); }
+      else toast.error(`${t('sync_flush_failed')}: ${res.error}`);
+    } catch (err: any) { toast.error(err?.message ?? 'Sync failed'); }
+    finally { setSyncFlushing(false); }
+  };
 
   // Confirm dialog (avoids window.confirm which locks Electron inputs)
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -305,6 +349,101 @@ export const SettingsPage: React.FC = () => {
             </Button>
           </div>
         </Section>
+
+        {/* ── ☁️ Cloud Sync (Admin only) ─────────────────────────── */}
+        {isAdmin && (
+          <Section title={t('section_cloud_sync')}>
+            <p className="text-sm text-pos-muted">{t('sync_subtitle')}</p>
+
+            {/* Status bar */}
+            {syncStatus && (
+              <div className="flex flex-wrap items-center gap-3 p-3 rounded-xl bg-pos-bg border border-pos-border text-sm">
+                <div className="flex items-center gap-2">
+                  {syncStatus.enabled && syncStatus.connected
+                    ? <Wifi size={15} className="text-pos-success" />
+                    : <WifiOff size={15} className="text-pos-muted" />}
+                  <span className={syncStatus.enabled && syncStatus.connected
+                    ? 'text-pos-success font-medium' : 'text-pos-muted'}>
+                    {!syncStatus.enabled
+                      ? t('sync_not_configured')
+                      : syncStatus.connected ? t('sync_connected') : t('sync_offline')}
+                  </span>
+                </div>
+                <span className="text-pos-border">|</span>
+                <span className="text-pos-muted">
+                  {t('sync_last_label')}: <span className="text-pos-text">
+                    {syncStatus.lastSyncAt
+                      ? new Date(syncStatus.lastSyncAt).toLocaleTimeString()
+                      : t('sync_never')}
+                  </span>
+                </span>
+                <span className="text-pos-border">|</span>
+                <span className="text-pos-muted">
+                  {t('sync_pending_label')}: <span className={syncStatus.pendingCount > 0 ? 'text-pos-warning font-medium' : 'text-pos-text'}>
+                    {syncStatus.pendingCount}
+                  </span>
+                </span>
+              </div>
+            )}
+
+            {syncStatus?.lastError && (
+              <div className="flex items-start gap-2 px-3 py-2 bg-pos-danger/10 border border-pos-danger/20 rounded-lg text-xs text-pos-danger">
+                <AlertTriangle size={13} className="flex-shrink-0 mt-0.5" />
+                <span><strong>{t('sync_error_label')}:</strong> {syncStatus.lastError}</span>
+              </div>
+            )}
+
+            {/* Credentials form */}
+            <Field label={t('sync_url_label')}>
+              <input
+                className="input font-mono text-sm"
+                type="url"
+                placeholder={t('sync_url_ph')}
+                value={syncUrl}
+                onChange={e => setSyncUrl(e.target.value)}
+              />
+            </Field>
+
+            <Field label={t('sync_key_label')} hint={t('sync_key_hint')}>
+              <div className="relative">
+                <input
+                  className="input font-mono text-sm pr-20"
+                  type={syncKeyVisible ? 'text' : 'password'}
+                  placeholder={t('sync_key_ph')}
+                  value={syncKey}
+                  onChange={e => setSyncKey(e.target.value)}
+                />
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-xs text-pos-muted hover:text-pos-text px-2 py-1"
+                  onClick={() => setSyncKeyVisible(v => !v)}
+                >
+                  {syncKeyVisible ? 'Hide' : 'Show'}
+                </button>
+              </div>
+            </Field>
+
+            <div className="flex gap-3">
+              <Button
+                icon={<Cloud size={15} />}
+                loading={syncSaving}
+                onClick={handleSyncSave}
+                className="flex-1"
+              >
+                {t('sync_save_btn')}
+              </Button>
+              <Button
+                variant="secondary"
+                icon={<RefreshCcw size={15} />}
+                loading={syncFlushing}
+                onClick={handleSyncNow}
+                disabled={!syncStatus?.enabled}
+              >
+                {t('sync_now_btn')}
+              </Button>
+            </div>
+          </Section>
+        )}
 
       </div>
     </div>

@@ -1,0 +1,18 @@
+# Vercel Ignore File
+
+# Ignore nested node_modules and build directories which Vercel doesn't ignore by default when run from the root
+node_modules
+web-admin/node_modules
+web-admin/.next
+
+# Ignore large build and electron directories
+release
+dist
+dist-electron
+electron
+database
+
+# Ignore executables and logs
+*.exe
+*.log
+app-log.txt
