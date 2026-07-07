@@ -13,6 +13,7 @@ export async function loadSettings(): Promise<AppSettings> {
     receipt_footer:  map.receipt_footer  ?? 'Thank you!',
     theme:           map.theme           ?? 'dark',
     printer_share_name: map.printer_share_name ?? '',
+    cloud_sync_enabled: map.cloud_sync_enabled === 'true',
   };
 }
 

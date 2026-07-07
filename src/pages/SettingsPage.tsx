@@ -33,6 +33,7 @@ export const SettingsPage: React.FC = () => {
     usd_to_lbp_rate: '',
     receipt_footer: '',
     printer_share_name: '',
+    cloud_sync_enabled: false,
   });
   const [saving, setSaving]             = useState(false);
   const [importing, setImporting]       = useState(false);
@@ -118,6 +119,7 @@ export const SettingsPage: React.FC = () => {
       usd_to_lbp_rate: String(settings.usd_to_lbp_rate),
       receipt_footer: settings.receipt_footer,
       printer_share_name: settings.printer_share_name || '',
+      cloud_sync_enabled: settings.cloud_sync_enabled,
     });
   }, [settings]);
 
@@ -132,6 +134,7 @@ export const SettingsPage: React.FC = () => {
         usd_to_lbp_rate: rate,
         receipt_footer: form.receipt_footer,
         printer_share_name: form.printer_share_name.trim(),
+        cloud_sync_enabled: form.cloud_sync_enabled,
       });
       toast.success('Settings saved successfully');
     } catch {
@@ -354,6 +357,19 @@ export const SettingsPage: React.FC = () => {
         {isAdmin && (
           <Section title={t('section_cloud_sync')}>
             <p className="text-sm text-pos-muted">{t('sync_subtitle')}</p>
+
+            <div className="flex items-center gap-3">
+              <label className="relative inline-flex items-center cursor-pointer">
+                <input type="checkbox" className="sr-only peer" checked={form.cloud_sync_enabled} onChange={async e => {
+                  const checked = e.target.checked;
+                  setForm(f => ({...f, cloud_sync_enabled: checked}));
+                  await save({ cloud_sync_enabled: checked });
+                  pollSync();
+                }} />
+                <div className="w-11 h-6 bg-pos-border peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500"></div>
+                <span className="ml-3 text-sm font-medium text-pos-text">{lang === 'ar' ? 'تفعيل المزامنة السحابية' : 'Enable Cloud Sync'}</span>
+              </label>
+            </div>
 
             {/* Status bar */}
             {syncStatus && (

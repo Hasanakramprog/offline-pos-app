@@ -3,7 +3,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, ShoppingCart, Package, BarChart2,
   Users, Settings, LogOut, Store, Receipt, CreditCard, Clock,
-  ChevronsLeft, ChevronsRight,
+  ChevronsLeft, ChevronsRight, Wallet,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/authStore';
 import { useSettingsStore } from '../../store/settingsStore';
@@ -46,14 +46,14 @@ export const Sidebar: React.FC = () => {
   const canManage = isAdmin || isManager;
 
   const navItems = [
-    { to: '/dashboard', label: t('nav_dashboard'), icon: LayoutDashboard, show: true          },
-    { to: '/checkout',  label: t('nav_checkout'),  icon: ShoppingCart,    show: true          },
-    { to: '/inventory', label: t('nav_inventory'), icon: Package,         show: true          },
-    { to: '/reports',   label: t('nav_reports'),   icon: BarChart2,       show: true          },
-    { to: '/expenses',  label: t('nav_expenses'),  icon: Receipt,         show: canManage     },
-    { to: '/debts',     label: t('nav_debts'),     icon: CreditCard,      show: canManage     },
-    { to: '/users',     label: t('nav_users'),     icon: Users,           show: isAdmin       },
-    { to: '/settings',  label: t('nav_settings'),  icon: Settings,        show: true          },
+    { to: '/dashboard',   label: t('nav_dashboard'), icon: LayoutDashboard, show: true          },
+    { to: '/checkout',    label: t('nav_checkout'),  icon: ShoppingCart,    show: true          },
+    { to: '/inventory',   label: t('nav_inventory'), icon: Package,         show: true          },
+    { to: '/reports',     label: t('nav_reports'),   icon: BarChart2,       show: true          },
+    { to: '/credit-fund', label: t('credit_fund_title'), icon: Wallet,      show: canManage     },
+    { to: '/debts',       label: t('nav_debts'),     icon: CreditCard,      show: canManage     },
+    { to: '/users',       label: t('nav_users'),     icon: Users,           show: isAdmin       },
+    { to: '/settings',    label: t('nav_settings'),  icon: Settings,        show: true          },
   ];
 
   const visibleItems = navItems.filter(item => item.show);

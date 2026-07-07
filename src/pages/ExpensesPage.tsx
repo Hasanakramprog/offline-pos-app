@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Plus, Trash2, TrendingDown, Calendar, Tag,
-  ChevronDown, Receipt, Search, ChevronLeft, ChevronRight, X,
+  ChevronDown, Receipt, Search, ChevronLeft, ChevronRight, X, Wallet,
 } from 'lucide-react';
 import {
   createExpense, getExpenses, deleteExpense,
@@ -109,6 +109,8 @@ export const ExpensesPage: React.FC = () => {
         id: crypto.randomUUID(),
         category: form.category,
         amount_lbp: amount,
+        currency: 'LBP',
+        fund_paid: 0,
         note: form.note.trim() || undefined,
         user_id: user!.id,
       });
@@ -284,6 +286,7 @@ export const ExpensesPage: React.FC = () => {
                   <th className="px-4 py-3 text-left text-xs text-pos-muted font-medium">{t('col_date')}</th>
                   <th className="px-4 py-3 text-left text-xs text-pos-muted font-medium">{t('col_category')}</th>
                   <th className="px-4 py-3 text-left text-xs text-pos-muted font-medium">{t('col_note')}</th>
+                  <th className="px-4 py-3 text-left text-xs text-pos-muted font-medium">Source</th>
                   <th className="px-4 py-3 text-right text-xs text-pos-muted font-medium">{t('col_amount')}</th>
                   <th className="px-4 py-3 text-right text-xs text-pos-muted font-medium">{t('col_by')}</th>
                   {canEdit && <th className="px-4 py-3" />}
@@ -304,9 +307,27 @@ export const ExpensesPage: React.FC = () => {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-pos-muted max-w-xs truncate">{e.note || '—'}</td>
+                    <td className="px-4 py-3">
+                      {e.fund_paid ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border bg-pos-primary/10 text-pos-primary border-pos-primary/20">
+                          <Wallet size={10} /> {e.currency} Fund
+                        </span>
+                      ) : (
+                        <span className="text-xs text-pos-muted">Cash</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right">
-                      <p className="font-bold text-pos-danger">{formatLBP(e.amount_lbp)}</p>
-                      <p className="text-xs text-pos-muted">{formatUSD(lbpToUsd(e.amount_lbp, rate))}</p>
+                      {e.currency === 'USD' && e.amount_usd != null ? (
+                        <>
+                          <p className="font-bold text-pos-danger">{formatUSD(e.amount_usd)}</p>
+                          <p className="text-xs text-pos-muted">{formatLBP(e.amount_lbp)}</p>
+                        </>
+                      ) : (
+                        <>
+                          <p className="font-bold text-pos-danger">{formatLBP(e.amount_lbp)}</p>
+                          <p className="text-xs text-pos-muted">{formatUSD(lbpToUsd(e.amount_lbp, rate))}</p>
+                        </>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right text-xs text-pos-muted">{e.user_name ?? '—'}</td>
                     {canEdit && (

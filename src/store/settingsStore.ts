@@ -17,6 +17,7 @@ const defaults: AppSettings = {
   receipt_footer: 'Thank you for shopping with us!',
   theme: 'dark',
   printer_share_name: '',
+  cloud_sync_enabled: false,
 };
 
 export const useSettingsStore = create<SettingsStore>((set, get) => ({

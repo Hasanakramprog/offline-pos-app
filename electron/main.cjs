@@ -69,7 +69,7 @@ async function initDatabase() {
       "ALTER TABLE products ADD COLUMN image_url TEXT",
       // ── New tables for Expenses & Debts features ──────────────────────
       `CREATE TABLE IF NOT EXISTS expenses (
-         id TEXT PRIMARY KEY, category TEXT NOT NULL, amount_lbp REAL NOT NULL,
+         id TEXT PRIMARY KEY, category TEXT NOT NULL, amount_lbp REAL NOT NULL DEFAULT 0,
          note TEXT, user_id TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
       `CREATE INDEX IF NOT EXISTS idx_expenses_created_at ON expenses(created_at)`,
       `CREATE TABLE IF NOT EXISTS debt_customers (
@@ -82,6 +82,30 @@ async function initDatabase() {
          created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
          FOREIGN KEY (customer_id) REFERENCES debt_customers(id) ON DELETE CASCADE)`,
       `CREATE INDEX IF NOT EXISTS idx_debt_entries_customer ON debt_entries(customer_id)`,
+      // ── Credit Fund feature migrations ────────────────────────────────
+      `ALTER TABLE expenses ADD COLUMN amount_usd REAL`,
+      `ALTER TABLE expenses ADD COLUMN currency TEXT NOT NULL DEFAULT 'LBP'`,
+      `ALTER TABLE expenses ADD COLUMN fund_paid INTEGER NOT NULL DEFAULT 0`,
+      `CREATE TABLE IF NOT EXISTS credit_fund (
+         id TEXT PRIMARY KEY,
+         currency TEXT NOT NULL CHECK(currency IN ('LBP','USD')),
+         balance REAL NOT NULL DEFAULT 0,
+         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP)`,
+      `CREATE TABLE IF NOT EXISTS credit_fund_transactions (
+         id TEXT PRIMARY KEY,
+         fund_id TEXT NOT NULL,
+         type TEXT NOT NULL CHECK(type IN ('topup','deduction')),
+         amount REAL NOT NULL,
+         note TEXT,
+         expense_id TEXT,
+         user_id TEXT,
+         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+         FOREIGN KEY (fund_id) REFERENCES credit_fund(id),
+         FOREIGN KEY (user_id) REFERENCES users(id))`,
+      `CREATE INDEX IF NOT EXISTS idx_cft_fund    ON credit_fund_transactions(fund_id)`,
+      `CREATE INDEX IF NOT EXISTS idx_cft_created ON credit_fund_transactions(created_at)`,
+      `INSERT OR IGNORE INTO credit_fund (id, currency, balance) VALUES ('fund-lbp','LBP',0)`,
+      `INSERT OR IGNORE INTO credit_fund (id, currency, balance) VALUES ('fund-usd','USD',0)`,
     ];
     for (const sql of migrations) {
       try { db.run(sql); persistDB(); } catch (_) { /* column already exists */ }

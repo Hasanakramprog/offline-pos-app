@@ -119,6 +119,7 @@ export interface AppSettings {
   receipt_footer: string;
   theme: string;
   printer_share_name?: string;
+  cloud_sync_enabled: boolean;
 }
 
 export interface DailySummary {
@@ -141,7 +142,30 @@ export interface Expense {
   id: string;
   category: string;
   amount_lbp: number;
+  amount_usd?: number;           // set when currency === 'USD'
+  currency: 'LBP' | 'USD';
+  fund_paid: number;             // 1 = paid from credit fund
   note?: string;
+  user_id?: string;
+  user_name?: string;
+  created_at: string;
+}
+
+// ── Credit Fund ───────────────────────────────────────────────────────────
+export interface CreditFund {
+  id: string;
+  currency: 'LBP' | 'USD';
+  balance: number;
+  updated_at: string;
+}
+
+export interface CreditFundTransaction {
+  id: string;
+  fund_id: string;
+  type: 'topup' | 'deduction';
+  amount: number;
+  note?: string;
+  expense_id?: string;
   user_id?: string;
   user_name?: string;
   created_at: string;

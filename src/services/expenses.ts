@@ -16,10 +16,18 @@ export async function createExpense(
   expense: Omit<Expense, 'created_at' | 'user_name'>
 ): Promise<void> {
   await db.run(
-    `INSERT INTO expenses (id, category, amount_lbp, note, user_id)
-     VALUES (?, ?, ?, ?, ?)`,
-    [expense.id, expense.category, expense.amount_lbp,
-     expense.note ?? null, expense.user_id ?? null]
+    `INSERT INTO expenses (id, category, amount_lbp, amount_usd, currency, fund_paid, note, user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      expense.id,
+      expense.category,
+      expense.amount_lbp,
+      expense.amount_usd ?? null,
+      expense.currency ?? 'LBP',
+      expense.fund_paid ?? 0,
+      expense.note ?? null,
+      expense.user_id ?? null,
+    ]
   );
 }
 

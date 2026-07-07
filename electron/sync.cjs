@@ -141,9 +141,17 @@ function getSyncStatus() {
   } catch (e) {
     console.error('[SYNC] _refreshPendingCount error:', e.message);
   }
+  let isEnabled = Boolean(_supabaseUrl && _supabaseKey);
+  try {
+    const res = _db.exec("SELECT value FROM settings WHERE key='cloud_sync_enabled'");
+    if (res.length > 0 && res[0].values.length > 0 && res[0].values[0][0] !== 'true') {
+      isEnabled = false;
+    }
+  } catch (err) { /* ignore */ }
+
   // Return ONLY plain JavaScript primitives - nothing from sql.js or Electron
   return {
-    enabled:      Boolean(_supabaseUrl && _supabaseKey),
+    enabled:      isEnabled,
     connected:    Boolean(_isOnline),
     lastSyncAt:   _lastSyncAt ? String(_lastSyncAt) : null,
     pendingCount: Number(_pendingCount) || 0,
@@ -181,6 +189,16 @@ async function flushQueue() {
   if (_syncing)  return;  // already running
   if (!_supabaseUrl || !_supabaseKey) return;  // not configured
   if (!_isOnline) return;  // no internet
+
+  // Check if sync is globally enabled in DB
+  try {
+    const res = _db.exec("SELECT value FROM settings WHERE key='cloud_sync_enabled'");
+    const isEnabled = res.length > 0 && res[0].values.length > 0 && res[0].values[0][0] === 'true';
+    if (!isEnabled) return;
+  } catch (err) {
+    // If table doesn't exist or other error, assume disabled
+    return;
+  }
 
   _syncing = true;
   try {

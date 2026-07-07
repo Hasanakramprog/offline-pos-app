@@ -13,6 +13,7 @@ import { UsersPage } from './pages/UsersPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { ExpensesPage } from './pages/ExpensesPage';
 import { DebtsPage } from './pages/DebtsPage';
+import { CreditFundPage } from './pages/CreditFundPage';
 
 const PrivateRoute: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const isAuthenticated = useAuthStore(s => s.isAuthenticated);
@@ -50,8 +51,9 @@ function App() {
             <Route path="reports"   element={<ReportsPage />} />
             <Route path="users"     element={<AdminRoute><UsersPage /></AdminRoute>} />
             <Route path="settings"  element={<SettingsPage />} />
-            <Route path="expenses"  element={<ManagerRoute><ExpensesPage /></ManagerRoute>} />
-            <Route path="debts"     element={<ManagerRoute><DebtsPage /></ManagerRoute>} />
+            <Route path="expenses"     element={<ManagerRoute><ExpensesPage /></ManagerRoute>} />
+            <Route path="debts"        element={<ManagerRoute><DebtsPage /></ManagerRoute>} />
+            <Route path="credit-fund"  element={<ManagerRoute><CreditFundPage /></ManagerRoute>} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

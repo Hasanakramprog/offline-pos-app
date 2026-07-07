@@ -110,11 +110,14 @@ CREATE TABLE IF NOT EXISTS settings (
   updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
 
--- ── Expenses ─────────────────────────────────────────────────
+-- ── Expenses ─────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS expenses (
   id          TEXT PRIMARY KEY,
   category    TEXT NOT NULL,
-  amount_lbp  REAL NOT NULL,
+  amount_lbp  REAL NOT NULL DEFAULT 0,
+  amount_usd  REAL,                         -- raw USD amount when paid in USD
+  currency    TEXT NOT NULL DEFAULT 'LBP',  -- 'LBP' or 'USD'
+  fund_paid   INTEGER NOT NULL DEFAULT 0,   -- 1 = deducted from credit fund
   note        TEXT,
   user_id     TEXT,
   created_at  DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -122,6 +125,30 @@ CREATE TABLE IF NOT EXISTS expenses (
 );
 
 CREATE INDEX IF NOT EXISTS idx_expenses_created_at ON expenses(created_at);
+
+-- ── Credit Fund ───────────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS credit_fund (
+  id         TEXT PRIMARY KEY,
+  currency   TEXT NOT NULL CHECK(currency IN ('LBP','USD')),
+  balance    REAL NOT NULL DEFAULT 0,
+  updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS credit_fund_transactions (
+  id         TEXT PRIMARY KEY,
+  fund_id    TEXT NOT NULL,
+  type       TEXT NOT NULL CHECK(type IN ('topup','deduction')),
+  amount     REAL NOT NULL,
+  note       TEXT,
+  expense_id TEXT,
+  user_id    TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (fund_id)  REFERENCES credit_fund(id),
+  FOREIGN KEY (user_id)  REFERENCES users(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_cft_fund      ON credit_fund_transactions(fund_id);
+CREATE INDEX IF NOT EXISTS idx_cft_created   ON credit_fund_transactions(created_at);
 
 -- ── Debt Customers ────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS debt_customers (
@@ -180,6 +207,11 @@ INSERT OR IGNORE INTO categories (id, name) VALUES
   ('cat-007', 'Other');
 -- ── Seed: Sample Products ────────────────────────────────────
 -- Removed to start with an empty product catalog
+
+-- ── Seed: Credit Fund pots ───────────────────────────────────
+INSERT OR IGNORE INTO credit_fund (id, currency, balance) VALUES
+  ('fund-lbp', 'LBP', 0),
+  ('fund-usd', 'USD', 0);
 
 -- ── Seed: Sample Discounts ──────────────────────────────────
 INSERT OR IGNORE INTO discounts (id, code, description, discount_type, discount_value, is_active) VALUES
