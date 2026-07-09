@@ -1,9 +1,10 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { getSalesByDateRange, getDailySummary, getTopProducts, getSaleWithItems } from '../services/sales';
 import { formatLBP, formatUSD, formatDate, formatDateTime, lbpToUsd } from '../utils/formatters';
 import { useSettingsStore } from '../store/settingsStore';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid } from 'recharts';
-import { Search, Download, ChevronLeft, ChevronRight, X, Receipt } from 'lucide-react';
+import { Search, Download, ChevronLeft, ChevronRight, X, Receipt, Printer } from 'lucide-react';
 import { useLang } from '../i18n/LangContext';
 import type { SaleWithItems } from '../types';
 
@@ -18,7 +19,7 @@ interface Sale {
 export const ReportsPage: React.FC = () => {
   const { settings } = useSettingsStore();
   const rate = settings.usd_to_lbp_rate;
-  const { t } = useLang();
+  const { t, lang } = useLang();
 
   const today = new Date().toISOString().split('T')[0];
   const [start, setStart] = useState(today);
@@ -53,6 +54,144 @@ export const ReportsPage: React.FC = () => {
       setLoadingSale(false);
     }
   };
+
+  // Lock body scroll when modal is open
+  const handlePrint = () => {
+    if (!selectedSale) return;
+    const isAr = lang === 'ar';
+    const dir = isAr ? 'rtl' : 'ltr';
+
+    const discountRows = selectedSale.discount_lbp > 0 ? `
+      <div class="row">
+        <span>${isAr ? 'المجموع الفرعي' : 'Subtotal'}</span>
+        <span>${formatLBP(selectedSale.subtotal_lbp)}</span>
+      </div>
+      <div class="row" style="color:#b45309">
+        <span>${isAr ? 'الخصم' : 'Discount'}</span>
+        <span>−${formatLBP(selectedSale.discount_lbp)}</span>
+      </div>` : '';
+
+    const footerHtml = settings.receipt_footer
+      ? `<hr class="divider"/><p class="center small">${settings.receipt_footer}</p>`
+      : '';
+
+    const itemRows = selectedSale.items.map(item => `
+      <div class="row">
+        <span class="item-name">${item.product_name}</span>
+        <span class="item-qty">×${item.quantity}</span>
+        <span class="item-price">${formatLBP(item.line_total_lbp)}</span>
+      </div>`).join('');
+
+    const paymentLabel = selectedSale.payment_method === 'cash'
+      ? (isAr ? 'نقد' : 'Cash')
+      : selectedSale.payment_method === 'debt'
+      ? (isAr ? 'دين' : 'Debt')
+      : (isAr ? 'سداد دين' : 'Debt Payment');
+
+    const cashRows = selectedSale.payment_method === 'cash' ? `
+      <div class="row" style="margin-top:1mm">
+        <span>${isAr ? 'نقد' : 'Cash'}</span>
+        <span>${formatLBP(selectedSale.cash_received_lbp)}</span>
+      </div>
+      <div class="row bold" style="color:#16a34a">
+        <span>${isAr ? 'الباقي' : 'Change'}</span>
+        <span>${formatLBP(selectedSale.change_lbp)}</span>
+      </div>` : '';
+
+    const html = `<!DOCTYPE html>
+<html dir="${dir}" lang="${lang}">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Receipt</title>
+  <style>
+    @page { size: 80mm auto; margin: 0; }
+    html, body { margin: 0; padding: 0; background: #fff; color: #000; }
+    * { box-sizing: border-box; }
+    body {
+      width: 100%;
+      max-width: 80mm;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 9pt;
+      font-weight: 700;
+      line-height: 1.4;
+      direction: ${dir};
+    }
+    .wrap { width: 100%; box-sizing: border-box; padding: 2mm 14mm 2mm 2mm; }
+    .center { text-align: center; }
+    .store-name { font-size: 13pt; font-weight: 700; text-align: center; letter-spacing: 0.5px; margin-bottom: 1mm; text-transform: uppercase; }
+    .small { font-size: 7.5pt; color: #333; text-align: center; }
+    .divider { border: none; border-top: 1px dashed #000; margin: 2mm 0; width: 100%; display: block; }
+    .row { display: flex; justify-content: space-between; width: 100%; font-size: 8.5pt; line-height: 1.45; gap: 1mm; }
+    .row.header { color: #555; margin-bottom: 1mm; }
+    .row.bold { font-weight: 700; }
+    .row.grand { font-size: 11pt; font-weight: 700; margin-top: 1mm; }
+    .row.muted { font-size: 7.5pt; color: #555; }
+    .item-name { flex: 1; word-break: break-word; white-space: normal; text-align: ${isAr ? 'right' : 'left'}; }
+    .item-qty  { flex-shrink: 0; white-space: nowrap; padding: 0 1mm; text-align: center; }
+    .item-price{ flex-shrink: 0; white-space: nowrap; min-width: 14mm; text-align: ${isAr ? 'left' : 'right'}; }
+  </style>
+</head>
+<body><div class="wrap">
+  <p class="store-name">${settings.store_name}</p>
+  <p class="small">${isAr ? 'رقم المعاملة' : 'TX'}: ${selectedSale.transaction_number}</p>
+  <p class="small">${new Date(selectedSale.created_at).toLocaleString()}</p>
+  <p class="small">${isAr ? 'الكاشير' : 'Cashier'}: ${selectedSale.user_name ?? '—'}</p>
+  <p class="small">${isAr ? 'الدفع' : 'Payment'}: ${paymentLabel}</p>
+  <hr class="divider"/>
+  <div class="row header">
+    <span class="item-name">${isAr ? 'الصنف' : 'Item'}</span>
+    <span class="item-qty">${isAr ? 'كمية' : 'Qty'}</span>
+    <span class="item-price">${isAr ? 'المجموع' : 'Total'}</span>
+  </div>
+  ${itemRows}
+  <hr class="divider"/>
+  ${discountRows}
+  <div class="row grand">
+    <span>${isAr ? 'المجموع' : 'Total'}</span>
+    <span>${formatLBP(selectedSale.total_lbp)}</span>
+  </div>
+  <div class="row muted">
+    <span></span>
+    <span>≈ ${formatUSD(lbpToUsd(selectedSale.total_lbp, rate))}</span>
+  </div>
+  ${cashRows}
+  ${footerHtml}
+</div></body>
+</html>`;
+
+    // Use Electron's silent print via IPC (no dialog, no external window)
+    const api = (window as any).electronAPI?.print;
+    if (api?.receipt) {
+      api.getPrinters?.().then((printers: any[]) => {
+        console.log('[REPORTS] Available printers:', printers);
+      });
+      const printerName = settings.printer_share_name || undefined;
+      api.receipt(html, printerName).then((result: any) => {
+        if (!result?.success) {
+          console.error('Print failed:', result?.error);
+        }
+      });
+    } else {
+      // Fallback for browser / dev mode
+      const w = window.open('', '_blank', 'width=320,height=600');
+      if (!w) return;
+      w.document.open();
+      w.document.write(html);
+      w.document.close();
+      w.focus();
+      setTimeout(() => { w.print(); w.close(); }, 300);
+    }
+  };
+
+  // Lock body scroll when modal is open
+  useEffect(() => {
+    if (loadingSale || selectedSale) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [loadingSale, selectedSale]);
 
   useEffect(() => {
     (async () => {
@@ -429,11 +568,11 @@ export const ReportsPage: React.FC = () => {
       </div>
 
       {/* ── Transaction Detail Modal ─────────────────────────────────── */}
-      {(loadingSale || selectedSale) && (
+      {(loadingSale || selectedSale) && createPortal(
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.55)', backdropFilter: 'blur(4px)' }}
-          onClick={() => { setSelectedSale(null); setLoadingSale(false); }}
+          onClick={(e) => { e.stopPropagation(); setSelectedSale(null); setLoadingSale(false); }}
         >
           <div
             className="bg-pos-surface border border-pos-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col overflow-hidden"
@@ -460,12 +599,23 @@ export const ReportsPage: React.FC = () => {
                   </span>
                 )}
               </div>
-              <button
-                onClick={() => { setSelectedSale(null); setLoadingSale(false); }}
-                className="p-1.5 rounded-lg hover:bg-pos-border/60 text-pos-muted hover:text-pos-text transition"
-              >
-                <X size={16} />
-              </button>
+              <div className="flex items-center gap-1">
+                {selectedSale && (
+                  <button
+                    onClick={handlePrint}
+                    className="p-1.5 rounded-lg hover:bg-pos-border/60 text-pos-muted hover:text-pos-text transition"
+                    title="Print receipt"
+                  >
+                    <Printer size={16} />
+                  </button>
+                )}
+                <button
+                  onClick={() => { setSelectedSale(null); setLoadingSale(false); }}
+                  className="p-1.5 rounded-lg hover:bg-pos-border/60 text-pos-muted hover:text-pos-text transition"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
             {loadingSale && !selectedSale ? (
@@ -553,7 +703,7 @@ export const ReportsPage: React.FC = () => {
             )}
           </div>
         </div>
-      )}
+      , document.body)}
     </div>
   );
 };
