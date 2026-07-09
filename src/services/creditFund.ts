@@ -85,6 +85,84 @@ export async function getFundTransactions(limit = 500): Promise<CreditFundTransa
 }
 
 /**
+ * Delete a transaction and reverse its effect on the fund balance.
+ * - For a deduction: adds the amount back to the fund.
+ * - For a topup: subtracts the amount from the fund (won't go below 0).
+ */
+export async function deleteTransaction(txnId: string): Promise<void> {
+  const rows = await db.query<CreditFundTransaction & { fund_id: string; type: string; amount: number }>(
+    `SELECT * FROM credit_fund_transactions WHERE id = ?`,
+    [txnId]
+  );
+  const txn = rows[0];
+  if (!txn) throw new Error('Transaction not found');
+
+  const delta = txn.type === 'deduction' ? txn.amount : -txn.amount;
+
+  await db.run(
+    `UPDATE credit_fund
+        SET balance    = MAX(0, balance + ?),
+            updated_at = CURRENT_TIMESTAMP
+      WHERE id = ?`,
+    [delta, txn.fund_id]
+  );
+
+  await db.run(`DELETE FROM credit_fund_transactions WHERE id = ?`, [txnId]);
+}
+
+/**
+ * Edit a transaction's note and/or amount.
+ * Adjusts the fund balance by the difference between old and new amounts.
+ * Throws if the new amount would make the fund go negative.
+ */
+export async function updateTransaction(
+  txnId: string,
+  newAmount: number,
+  newNote: string | undefined,
+): Promise<void> {
+  if (newAmount <= 0) throw new Error('Amount must be positive');
+
+  const rows = await db.query<CreditFundTransaction>(
+    `SELECT * FROM credit_fund_transactions WHERE id = ?`,
+    [txnId]
+  );
+  const txn = rows[0];
+  if (!txn) throw new Error('Transaction not found');
+
+  const diff = newAmount - txn.amount; // positive = amount increased
+
+  if (diff !== 0) {
+    // For a deduction: increasing the amount takes more money out (delta = -diff)
+    // For a topup: increasing adds more in (delta = +diff)
+    const balanceDelta = txn.type === 'deduction' ? -diff : diff;
+
+    const fundRows = await db.query<CreditFund>(
+      `SELECT balance FROM credit_fund WHERE id = ?`,
+      [txn.fund_id]
+    );
+    const newBalance = (fundRows[0]?.balance ?? 0) + balanceDelta;
+    if (newBalance < 0) {
+      throw new Error('This change would make the fund balance go negative');
+    }
+
+    await db.run(
+      `UPDATE credit_fund
+          SET balance    = balance + ?,
+              updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?`,
+      [balanceDelta, txn.fund_id]
+    );
+  }
+
+  await db.run(
+    `UPDATE credit_fund_transactions
+        SET amount = ?, note = ?
+      WHERE id = ?`,
+    [newAmount, newNote ?? null, txnId]
+  );
+}
+
+/**
  * Reset a fund balance to zero.
  * If there is an existing positive balance, logs a deduction to zero.
  * If already zero, does nothing.

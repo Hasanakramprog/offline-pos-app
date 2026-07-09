@@ -57,6 +57,7 @@ export async function getSalesByDateRange(start: string, end: string): Promise<S
     `SELECT s.*, u.full_name as user_name
      FROM sales s LEFT JOIN users u ON s.user_id = u.id
      WHERE DATE(s.created_at) BETWEEN ? AND ?
+       AND s.payment_method != 'debt'
      ORDER BY s.created_at DESC`,
     [start, end]
   );
@@ -83,6 +84,7 @@ export async function getTopProducts(days = 30) {
      FROM sale_items si
      JOIN sales s ON si.sale_id = s.id
      WHERE s.created_at >= DATE('now', ? || ' days')
+       AND s.payment_method != 'debt'
      GROUP BY si.product_id
      ORDER BY units_sold DESC LIMIT 10`,
     [`-${days}`]
