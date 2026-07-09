@@ -2,11 +2,11 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   Wallet, Plus, ArrowUpCircle, ArrowDownCircle,
   ChevronLeft, ChevronRight, TrendingDown, RefreshCw,
-  Printer, RotateCcw, Search, Calendar, Tag, X, Filter,
+  Printer, RotateCcw, Search, Calendar, Tag, X, Filter, Pencil, Trash2,
 } from 'lucide-react';
 import {
   getFunds, topUpFund, getFundTransactions,
-  deductFromFund, resetFund,
+  deductFromFund, resetFund, deleteTransaction, updateTransaction,
 } from '../services/creditFund';
 import { getExpenses, EXPENSE_CATEGORIES } from '../services/expenses';
 import { createExpense } from '../services/expenses';
@@ -57,6 +57,13 @@ export const CreditFundPage: React.FC = () => {
   const [printTo, setPrintTo] = useState('');
   const [printFund, setPrintFund] = useState<'all'|'fund-lbp'|'fund-usd'>('all');
 
+  const [editOpen, setEditOpen] = useState(false);
+  const [editTxn, setEditTxn] = useState<CreditFundTransaction | null>(null);
+  const [editAmount, setEditAmount] = useState('');
+  const [editDisplay, setEditDisplay] = useState('');
+  const [editNote, setEditNote] = useState('');
+  const [editSaving, setEditSaving] = useState(false);
+
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmMsg, setConfirmMsg] = useState('');
   const confirmAction = useRef<(()=>void)|null>(null);
@@ -75,14 +82,19 @@ export const CreditFundPage: React.FC = () => {
   const lbpFund = funds.find(f => f.id === 'fund-lbp');
   const usdFund = funds.find(f => f.id === 'fund-usd');
 
+  // Only resets are hidden from history & print; topups are visible
+  const isInternal = (t: CreditFundTransaction) =>
+    (t.type === 'deduction' && !t.expense_id && t.note === 'Fund reset to zero');
+
   const hasActiveFilter = filterType !== 'all' || filterFund !== 'all' || filterFrom || filterTo || filterNote;
 
   const filtered = txns.filter(t => {
+    if (isInternal(t)) return false;
     if (filterType !== 'all' && t.type !== filterType) return false;
     if (filterFund !== 'all' && t.fund_id !== filterFund) return false;
     if (filterNote && !t.note?.toLowerCase().includes(filterNote.toLowerCase())) return false;
-    if (filterFrom) { const d = new Date(t.created_at).toISOString().slice(0,10); if (d < filterFrom) return false; }
-    if (filterTo)   { const d = new Date(t.created_at).toISOString().slice(0,10); if (d > filterTo)   return false; }
+    if (filterFrom) { const utc = t.created_at.endsWith('Z')||t.created_at.includes('+')?t.created_at:t.created_at+'Z'; const d = new Date(utc).toLocaleDateString('en-CA'); if (d < filterFrom) return false; }
+    if (filterTo)   { const utc = t.created_at.endsWith('Z')||t.created_at.includes('+')?t.created_at:t.created_at+'Z'; const d = new Date(utc).toLocaleDateString('en-CA'); if (d > filterTo)   return false; }
     return true;
   });
 
@@ -139,10 +151,47 @@ export const CreditFundPage: React.FC = () => {
     });
   };
 
+  const openEditTxn = (txn: CreditFundTransaction) => {
+    setEditTxn(txn);
+    const isUsd = txn.fund_id === 'fund-usd';
+    const display = isUsd ? txn.amount.toString() : Math.round(txn.amount).toLocaleString('en-US');
+    setEditAmount(txn.amount.toString());
+    setEditDisplay(display);
+    setEditNote(txn.note ?? '');
+    setEditOpen(true);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editTxn) return;
+    const amount = parseFloat(editAmount.replace(/,/g, ''));
+    if (!amount || amount <= 0) { toast.error(t('enter_valid_amount')); return; }
+    setEditSaving(true);
+    try {
+      await updateTransaction(editTxn.id, amount, editNote.trim() || undefined);
+      toast.success('Transaction updated');
+      setEditOpen(false);
+      await load();
+    } catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed'); }
+    finally { setEditSaving(false); }
+  };
+
+  const handleDeleteTxn = (txn: CreditFundTransaction) => {
+    const isUsd = txn.fund_id === 'fund-usd';
+    const amt = isUsd ? formatUSD(txn.amount) : formatLBP(txn.amount);
+    askConfirm(
+      `Delete this transaction (${amt})? The fund balance will be restored.`,
+      async () => {
+        try { await deleteTransaction(txn.id); toast.success('Transaction deleted'); await load(); }
+        catch (err: unknown) { toast.error(err instanceof Error ? err.message : 'Failed'); }
+      }
+    );
+  };
+
   const getPrintTxns = () => txns.filter(t => {
+    if (isInternal(t)) return false;
     if (printFund !== 'all' && t.fund_id !== printFund) return false;
-    if (printFrom) { const d = new Date(t.created_at).toISOString().slice(0,10); if (d < printFrom) return false; }
-    if (printTo)   { const d = new Date(t.created_at).toISOString().slice(0,10); if (d > printTo)   return false; }
+    if (printFrom) { const utc = t.created_at.endsWith('Z')||t.created_at.includes('+')?t.created_at:t.created_at+'Z'; const d = new Date(utc).toLocaleDateString('en-CA'); if (d < printFrom) return false; }
+    if (printTo)   { const utc = t.created_at.endsWith('Z')||t.created_at.includes('+')?t.created_at:t.created_at+'Z'; const d = new Date(utc).toLocaleDateString('en-CA'); if (d > printTo)   return false; }
     return true;
   });
 
@@ -159,7 +208,8 @@ export const CreditFundPage: React.FC = () => {
     const rows = [...printTxns].reverse().map(tItem => {
       const isDed = tItem.type==='deduction'; const isUsd = tItem.fund_id==='fund-usd';
       const amt   = isUsd ? formatUSD(tItem.amount) : formatLBP(tItem.amount);
-      const ds    = new Date(tItem.created_at).toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'2-digit'});
+      const _utcAt = tItem.created_at.endsWith('Z')||tItem.created_at.includes('+')?tItem.created_at:tItem.created_at+'Z';
+      const ds    = new Date(_utcAt).toLocaleDateString('en-GB',{day:'2-digit',month:'2-digit',year:'2-digit'});
       const exp   = tItem.expense_id ? expenses.find(e=>e.id===tItem.expense_id) : undefined;
       const noteT = exp ? exp.category+(tItem.note?` · ${tItem.note}`:'') : (tItem.note||'');
       const typeLabel = isDed ? t('type_deduction') : t('type_topup');
@@ -227,7 +277,7 @@ export const CreditFundPage: React.FC = () => {
       <div className="bg-pos-surface border border-pos-border rounded-xl overflow-hidden">
         <div className="px-4 py-3 border-b border-pos-border flex items-center justify-between">
           <p className="text-sm font-semibold">{t('transaction_history')}</p>
-          <p className="text-xs text-pos-muted">{t('total_transactions').replace('{count}', txns.length.toString())}</p>
+          <p className="text-xs text-pos-muted">{t('total_transactions').replace('{count}', txns.filter(t => !isInternal(t)).length.toString())}</p>
         </div>
 
         {/* Filter bar */}
@@ -284,6 +334,7 @@ export const CreditFundPage: React.FC = () => {
                   <th className="px-4 py-3 text-left text-xs text-pos-muted font-medium">{t('col_note_cat')}</th>
                   <th className="px-4 py-3 text-right text-xs text-pos-muted font-medium">{t('col_amount')}</th>
                   <th className="px-4 py-3 text-right text-xs text-pos-muted font-medium">{t('col_by')}</th>
+                  <th className="px-4 py-3 text-right text-xs text-pos-muted font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -292,7 +343,7 @@ export const CreditFundPage: React.FC = () => {
                   const exp = linkedExpense(tItem);
                   return (
                     <tr key={tItem.id} className={`border-b border-pos-border/50 last:border-0 transition-colors hover:bg-pos-border/20 ${i%2===0?'':'bg-pos-bg/30'}`}>
-                      <td className="px-4 py-3 text-pos-muted whitespace-nowrap">{new Date(tItem.created_at).toLocaleDateString()}<br/><span className="text-xs opacity-60">{new Date(tItem.created_at).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span></td>
+                      <td className="px-4 py-3 text-pos-muted whitespace-nowrap">{new Date(tItem.created_at.endsWith('Z')||tItem.created_at.includes('+')?tItem.created_at:tItem.created_at+'Z').toLocaleDateString()}<br/><span className="text-xs opacity-60">{new Date(tItem.created_at.endsWith('Z')||tItem.created_at.includes('+')?tItem.created_at:tItem.created_at+'Z').toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}</span></td>
                       <td className="px-4 py-3">
                         {isMinus
                           ? <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium border bg-pos-danger/10 text-pos-danger border-pos-danger/20"><ArrowDownCircle size={11}/> {t('type_deduction')}</span>
@@ -306,6 +357,24 @@ export const CreditFundPage: React.FC = () => {
                       </td>
                       <td className={`px-4 py-3 text-right font-bold ${isMinus?'text-pos-danger':'text-emerald-400'}`}>{isMinus?'−':'+'}{isUsd?formatUSD(tItem.amount):formatLBP(tItem.amount)}</td>
                       <td className="px-4 py-3 text-right text-xs text-pos-muted">{tItem.user_name??'—'}</td>
+                      <td className="px-4 py-3">
+                        <div className="flex items-center justify-end gap-1">
+                          <button
+                            onClick={() => openEditTxn(tItem)}
+                            className="p-1.5 rounded-lg text-pos-muted hover:text-pos-primary hover:bg-pos-primary/10 transition-all"
+                            title="Edit transaction"
+                          >
+                            <Pencil size={13} />
+                          </button>
+                          <button
+                            onClick={() => handleDeleteTxn(tItem)}
+                            className="p-1.5 rounded-lg text-pos-muted hover:text-pos-danger hover:bg-pos-danger/10 transition-all"
+                            title="Delete transaction"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -419,6 +488,57 @@ export const CreditFundPage: React.FC = () => {
             <Button className="flex-1" onClick={handlePrint} icon={<Printer size={15}/>}>{t('print_btn')}</Button>
           </div>
         </div>
+      </Modal>
+
+      {/* Edit Transaction Modal */}
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit Transaction" size="sm">
+        {editTxn && (
+          <div className="space-y-4">
+            <div className="p-3 rounded-xl bg-pos-bg border border-pos-border flex items-center justify-between text-sm">
+              <span className="text-pos-muted">Fund</span>
+              <span className={`font-bold ${editTxn.fund_id === 'fund-usd' ? 'text-emerald-400' : 'text-pos-primary'}`}>
+                {editTxn.fund_id === 'fund-usd' ? 'USD' : 'LBP'}
+              </span>
+            </div>
+            <div>
+              <label className="text-sm font-medium text-pos-muted block mb-1.5">
+                Amount ({editTxn.fund_id === 'fund-usd' ? 'USD' : 'LBP'})
+              </label>
+              <input
+                className="input font-mono text-lg text-center"
+                type="text"
+                inputMode="decimal"
+                placeholder="0"
+                autoFocus
+                value={editDisplay}
+                onChange={e => {
+                  const raw = e.target.value.replace(/,/g, '');
+                  const isUsd = editTxn.fund_id === 'fund-usd';
+                  const clean = isUsd ? raw.replace(/[^0-9.]/g, '') : raw.replace(/[^0-9]/g, '');
+                  setEditAmount(clean);
+                  if (clean === '') { setEditDisplay(''); return; }
+                  const num = parseFloat(clean);
+                  setEditDisplay(isUsd ? clean : isNaN(num) ? '' : num.toLocaleString('en-US'));
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') handleSaveEdit(); }}
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-pos-muted block mb-1.5">Note (optional)</label>
+              <input
+                className="input"
+                placeholder="e.g. Monthly electricity bill"
+                value={editNote}
+                onChange={e => setEditNote(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') handleSaveEdit(); }}
+              />
+            </div>
+            <div className="flex gap-3 pt-1">
+              <Button variant="secondary" className="flex-1" onClick={() => setEditOpen(false)}>{t('cancel_btn')}</Button>
+              <Button className="flex-1" loading={editSaving} onClick={handleSaveEdit} icon={<Pencil size={15}/>}>Save Changes</Button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Confirm Dialog */}

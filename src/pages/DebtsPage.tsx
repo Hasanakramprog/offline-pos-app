@@ -192,7 +192,8 @@ export const DebtsPage: React.FC = () => {
       const isDebt = entry.type === 'debt';
       const sign = isDebt ? '+' : '-';
       // Always Gregorian (Miladi), Western numerals
-      const dateStr = new Date(entry.created_at).toLocaleDateString('en-GB', {
+      const _utcEntry = entry.created_at.endsWith('Z')||entry.created_at.includes('+')?entry.created_at:entry.created_at+'Z';
+      const dateStr = new Date(_utcEntry).toLocaleDateString('en-GB', {
         day: '2-digit', month: '2-digit', year: '2-digit',
       });
       // Only the type label changes language; amounts/dates stay English
@@ -338,8 +339,8 @@ export const DebtsPage: React.FC = () => {
   const filteredHistory = history.filter(e => {
     if (histType !== 'all' && e.type !== histType) return false;
     if (histSearch && !e.note?.toLowerCase().includes(histSearch.toLowerCase())) return false;
-    if (histFrom) { const d = new Date(e.created_at).toISOString().slice(0,10); if (d < histFrom) return false; }
-    if (histTo)   { const d = new Date(e.created_at).toISOString().slice(0,10); if (d > histTo)   return false; }
+    if (histFrom) { const utc = e.created_at.endsWith('Z')||e.created_at.includes('+')?e.created_at:e.created_at+'Z'; const d = new Date(utc).toLocaleDateString('en-CA'); if (d < histFrom) return false; }
+    if (histTo)   { const utc = e.created_at.endsWith('Z')||e.created_at.includes('+')?e.created_at:e.created_at+'Z'; const d = new Date(utc).toLocaleDateString('en-CA'); if (d > histTo)   return false; }
     return true;
   });
   const histTotalPages = Math.max(1, Math.ceil(filteredHistory.length / HIST_PAGE));
@@ -624,7 +625,7 @@ export const DebtsPage: React.FC = () => {
                           <p className="text-sm font-medium capitalize">{entry.type}</p>
                           {entry.note && <p className="text-xs text-pos-muted truncate">{entry.note}</p>}
                           <p className="text-xs text-pos-muted/60">
-                            {new Date(entry.created_at).toLocaleString()} · {entry.user_name ?? '—'}
+                           {new Date(entry.created_at.endsWith('Z')||entry.created_at.includes('+')?entry.created_at:entry.created_at+'Z').toLocaleString()} · {entry.user_name ?? '—'}
                           </p>
                         </div>
                         <p className={`font-bold flex-shrink-0 ${entry.type === 'debt' ? 'text-pos-danger' : 'text-pos-success'}`}>

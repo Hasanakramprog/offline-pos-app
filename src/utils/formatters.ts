@@ -25,14 +25,28 @@ export function formatDualCurrency(lbp: number, rate: number): string {
 }
 
 // ── Date formatters ───────────────────────────────────────────────────────
+
+/**
+ * Ensures a date string from SQLite (stored as UTC without 'Z') is parsed
+ * as UTC so JavaScript converts it correctly to local time.
+ */
+function toUtcDate(dateStr: string): Date {
+  // If the string already has a timezone indicator, use it as-is
+  if (dateStr.endsWith('Z') || dateStr.includes('+') || /\d{2}:\d{2}$/.test(dateStr.slice(-6))) {
+    return new Date(dateStr);
+  }
+  // Append 'Z' to treat the timestamp as UTC
+  return new Date(dateStr + 'Z');
+}
+
 export function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-US', {
+  return toUtcDate(dateStr).toLocaleDateString('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
   });
 }
 
 export function formatDateTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleString('en-US', {
+  return toUtcDate(dateStr).toLocaleString('en-US', {
     year: 'numeric', month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
   });
