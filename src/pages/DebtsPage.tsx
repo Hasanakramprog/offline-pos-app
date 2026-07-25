@@ -177,6 +177,21 @@ export const DebtsPage: React.FC = () => {
   // ── Print debt statement ───────────────────────────────────────────────────
   const printDebtStatement = () => {
     if (!selected || history.length === 0) return;
+
+    // Apply the same filters as the UI
+    const filteredForPrint = history.filter(e => {
+      if (histType !== 'all' && e.type !== histType) return false;
+      if (histSearch && !e.note?.toLowerCase().includes(histSearch.toLowerCase())) return false;
+      if (histFrom) { const utc = e.created_at.endsWith('Z')||e.created_at.includes('+')?e.created_at:e.created_at+'Z'; const d = new Date(utc).toLocaleDateString('en-CA'); if (d < histFrom) return false; }
+      if (histTo)   { const utc = e.created_at.endsWith('Z')||e.created_at.includes('+')?e.created_at:e.created_at+'Z'; const d = new Date(utc).toLocaleDateString('en-CA'); if (d > histTo)   return false; }
+      return true;
+    });
+
+    if (filteredForPrint.length === 0) {
+      toast.error(lang === 'ar' ? 'لا يوجد حركات للطباعة' : 'No transactions to print');
+      return;
+    }
+
     const isAr = lang === 'ar';
     const dir = isAr ? 'rtl' : 'ltr';
 
@@ -184,11 +199,8 @@ export const DebtsPage: React.FC = () => {
       ? `<hr class="divider"/><p class="center small">${settings.receipt_footer}</p>`
       : '';
 
-    // Running balance rows — dates & numbers always in English (Gregorian/Miladi)
-    let runningBalance = 0;
-    const entryRows = [...history].reverse().map(entry => {
-      if (entry.type === 'debt')    runningBalance += entry.amount_lbp;
-      if (entry.type === 'payment') runningBalance -= entry.amount_lbp;
+    // History rows
+    const entryRows = [...filteredForPrint].reverse().map(entry => {
       const isDebt = entry.type === 'debt';
       const sign = isDebt ? '+' : '-';
       // Always Gregorian (Miladi), Western numerals

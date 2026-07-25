@@ -430,7 +430,6 @@ ipcMain.handle('print:receipt', (_e, html, printerName) => {
         scale: 1,
       });
 
-
       // List all available printers for diagnostics
       printWin.webContents.getPrintersAsync().then((printers) => {
         console.log('[PRINT] Available printers:', printers.map(p => `"${p.name}"${p.isDefault ? ' (DEFAULT)' : ''}`).join(', '));
@@ -486,3 +485,59 @@ ipcMain.handle('print:getPrinters', async (_e) => {
   tmpWin.destroy();
   return printers.map(p => ({ name: p.name, isDefault: p.isDefault }));
 });
+
+// Export receipt as PDF (for testing)
+ipcMain.handle('print:pdf', (_e, html) => {
+  return new Promise((resolve) => {
+    const os = require('os');
+    const tmpFile = path.join(os.tmpdir(), `pos-pdf-${Date.now()}.html`);
+
+    try {
+      fs.writeFileSync(tmpFile, html, 'utf8');
+    } catch (err) {
+      console.error('[PRINT PDF] Failed to write temp file:', err);
+      return resolve({ success: false, error: err.message });
+    }
+
+    const printWin = new BrowserWindow({
+      show: false,
+      frame: false,
+      useContentSize: true,
+      width: 302,
+      height: 5000,
+      webPreferences: { nodeIntegration: false, contextIsolation: true },
+    });
+
+    printWin.loadFile(tmpFile);
+
+    printWin.webContents.once('did-finish-load', async () => {
+      setTimeout(async () => {
+        try {
+          const pdfData = await printWin.webContents.printToPDF({
+            printBackground: true,
+            pageSize: 'A4'
+          });
+          
+          const desktopPath = app.getPath('desktop');
+          const filePath = path.join(desktopPath, `receipt-test-${Date.now()}.pdf`);
+          fs.writeFileSync(filePath, pdfData);
+          console.log('[PRINT PDF] Saved to:', filePath);
+          resolve({ success: true, filePath });
+        } catch (err) {
+          console.error('[PRINT PDF] Error:', err);
+          resolve({ success: false, error: err.message });
+        } finally {
+          try { fs.unlinkSync(tmpFile); } catch (_) {}
+          printWin.destroy();
+        }
+      }, 500); // Wait for fonts/styles
+    });
+
+    printWin.webContents.once('did-fail-load', (_ev, code, desc) => {
+      try { fs.unlinkSync(tmpFile); } catch (_) {}
+      printWin.destroy();
+      resolve({ success: false, error: desc });
+    });
+  });
+});
+

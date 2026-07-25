@@ -23,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   print: {
     receipt: (html, printerName) => ipcRenderer.invoke('print:receipt', html, printerName),
+    pdf: (html) => ipcRenderer.invoke('print:pdf', html),
     getPrinters: () => ipcRenderer.invoke('print:getPrinters'),
   },
   sync: {
