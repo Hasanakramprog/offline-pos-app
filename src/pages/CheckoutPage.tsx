@@ -138,12 +138,16 @@ export const CheckoutPage: React.FC = () => {
   const barcodeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isScanningRef = useRef(false);
   const {
-    items, addItem, removeItem, updateQty, setOrderDiscount,
+    items, addItem, removeItem, updateQty, updateItemPrice, setOrderDiscount,
     orderDiscount, subtotal, total, clearCart,
     heldOrders, parkOrder, resumeOrder, discardHeld,
   } = useCartStore();
   const [heldDrawerOpen, setHeldDrawerOpen] = useState(false);
   const [confirmDiscardId, setConfirmDiscardId] = useState<string | null>(null);
+
+  // ── Cart item inline price edit ─────────────────────────────────────────
+  const [editingPriceId, setEditingPriceId] = useState<string | null>(null);
+  const [editPriceVal, setEditPriceVal] = useState('');
   const { user } = useAuthStore();
   const { settings } = useSettingsStore();
   const rate = settings.usd_to_lbp_rate;
@@ -454,6 +458,14 @@ export const CheckoutPage: React.FC = () => {
 
   const cartTotal = total();
   const cartSubtotal = subtotal();
+
+  const commitCartPrice = (productId: string) => {
+    const raw = editPriceVal.replace(/,/g, '');
+    const price = Number(raw);
+    if (price > 0) updateItemPrice(productId, price);
+    setEditingPriceId(null);
+    setEditPriceVal('');
+  };
 
   // Compute cash received in LBP regardless of which mode cashier entered
   const cashInputNum = parseFloat(cashInput.replace(/,/g, '')) || 0;
@@ -841,7 +853,40 @@ export const CheckoutPage: React.FC = () => {
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
                               <p className="text-sm font-medium truncate">{item.product_name}</p>
-                              <p className="text-xs text-pos-muted">{formatLBP(item.unit_price_lbp)} each</p>
+                              {/* Price row with inline edit */}
+                              {editingPriceId === item.product_id ? (
+                                <div className="flex items-center gap-1 mt-0.5">
+                                  <input
+                                    autoFocus
+                                    className="input text-xs font-mono py-0.5 px-1.5 h-6 w-28"
+                                    type="text"
+                                    inputMode="numeric"
+                                    value={editPriceVal}
+                                    onChange={e => {
+                                      const stripped = e.target.value.replace(/,/g, '').replace(/[^0-9]/g, '');
+                                      setEditPriceVal(stripped === '' ? '' : Number(stripped).toLocaleString('en-US'));
+                                    }}
+                                    onKeyDown={e => {
+                                      if (e.key === 'Enter') commitCartPrice(item.product_id);
+                                      if (e.key === 'Escape') { setEditingPriceId(null); setEditPriceVal(''); }
+                                    }}
+                                    onBlur={() => commitCartPrice(item.product_id)}
+                                  />
+                                  <span className="text-[10px] text-pos-muted">LL</span>
+                                </div>
+                              ) : (
+                                <button
+                                  onClick={() => {
+                                    setEditingPriceId(item.product_id);
+                                    setEditPriceVal(item.unit_price_lbp.toLocaleString('en-US'));
+                                  }}
+                                  className="flex items-center gap-1 group mt-0.5"
+                                  title="Click to edit price"
+                                >
+                                  <p className="text-xs text-pos-muted group-hover:text-pos-text transition-colors">{formatLBP(item.unit_price_lbp)} each</p>
+                                  <Pencil size={10} className="text-pos-muted/50 group-hover:text-pos-primary transition-colors flex-shrink-0" />
+                                </button>
+                              )}
                               <p className="text-xs text-pos-muted/70">{formatUSD(lbpToUsd(item.unit_price_lbp, rate))} each</p>
                             </div>
                             <button onClick={e => { removeItem(item.product_id); e.currentTarget.blur(); }} className="text-pos-danger hover:brightness-125 flex-shrink-0">

@@ -53,6 +53,7 @@ export const DebtsPage: React.FC = () => {
   const [custForm, setCustForm] = useState({ name: '', phone: '', notes: '' });
   const [entryForm, setEntryForm] = useState({ amount: '', note: '' });
   const [amountDisplay, setAmountDisplay] = useState('');
+  const [entryCurrency, setEntryCurrency] = useState<'lbp' | 'usd'>('lbp');
   const [saving, setSaving] = useState(false);
 
   // ── Customer list filters & pagination ───────────────────────────────────
@@ -121,15 +122,17 @@ export const DebtsPage: React.FC = () => {
 
   const handleAddEntry = async () => {
     if (!selected) return;
-    const amount = parseFloat(entryForm.amount.replace(/,/g, ''));
-    if (!amount || amount <= 0) { toast.error(t('enter_valid_amount')); return; }
+    const rawAmount = parseFloat(entryForm.amount.replace(/,/g, ''));
+    if (!rawAmount || rawAmount <= 0) { toast.error(t('enter_valid_amount')); return; }
+    // Convert to LBP if the user entered in USD
+    const amount_lbp = entryCurrency === 'usd' ? Math.round(rawAmount * rate) : rawAmount;
     setSaving(true);
     try {
       await addDebtEntry({
         id: crypto.randomUUID(),
         customer_id: selected.id,
         type: entryType,
-        amount_lbp: amount,
+        amount_lbp,
         note: entryForm.note.trim() || undefined,
         user_id: user!.id,
       });
@@ -138,7 +141,7 @@ export const DebtsPage: React.FC = () => {
         await createDebtPaymentRevenue(
           crypto.randomUUID(),
           user!.id,
-          amount,
+          amount_lbp,
           entryForm.note.trim() || `${t('type_payment')} — ${selected.name}`,
           rate
         );
@@ -147,6 +150,7 @@ export const DebtsPage: React.FC = () => {
       setAddEntryOpen(false);
       setEntryForm({ amount: '', note: '' });
       setAmountDisplay('');
+      setEntryCurrency('lbp');
       await refreshSelected(selected.id);
     } catch { toast.error(t('failed_to_save')); }
     finally { setSaving(false); }
@@ -716,7 +720,7 @@ export const DebtsPage: React.FC = () => {
       {/* ── Add Debt / Payment Modal ───────────────────────────────── */}
       <Modal
         open={addEntryOpen}
-        onClose={() => setAddEntryOpen(false)}
+        onClose={() => { setAddEntryOpen(false); setEntryCurrency('lbp'); }}
         title={entryType === 'debt' ? `${t('add_debt')} — ${selected?.name}` : `${t('add_payment')} — ${selected?.name}`}
         size="sm"
       >
@@ -740,32 +744,78 @@ export const DebtsPage: React.FC = () => {
           </div>
 
           <div>
-            <label className="text-sm font-medium text-pos-muted block mb-1.5">{t('amount_star')}</label>
-            <input
-              className="input font-mono text-lg text-center" autoFocus
-              type="text" inputMode="numeric" placeholder="0"
-              value={amountDisplay}
-              onChange={e => {
-                const stripped = e.target.value.replace(/,/g, '').replace(/[^0-9]/g, '');
-                setEntryForm(f => ({ ...f, amount: stripped }));
-                setAmountDisplay(stripped === '' ? '' : Number(stripped).toLocaleString('en-US'));
-              }}
-              onKeyDown={e => { if (e.key === 'Enter') handleAddEntry(); }}
-            />
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="text-sm font-medium text-pos-muted">{t('amount_star')}</label>
+              {/* Currency toggle */}
+              <div className="flex rounded-lg overflow-hidden border border-pos-border text-xs">
+                <button
+                  onClick={() => { setEntryCurrency('lbp'); setEntryForm(f => ({ ...f, amount: '' })); setAmountDisplay(''); }}
+                  className={`px-2.5 py-1 font-semibold transition-colors
+                    ${entryCurrency === 'lbp' ? 'bg-pos-primary text-white' : 'text-pos-muted hover:bg-pos-border/40'}`}
+                >
+                  LBP
+                </button>
+                <button
+                  onClick={() => { setEntryCurrency('usd'); setEntryForm(f => ({ ...f, amount: '' })); setAmountDisplay(''); }}
+                  className={`px-2.5 py-1 font-semibold transition-colors
+                    ${entryCurrency === 'usd' ? 'bg-pos-primary text-white' : 'text-pos-muted hover:bg-pos-border/40'}`}
+                >
+                  USD
+                </button>
+              </div>
+            </div>
+            <div className="relative">
+              {entryCurrency === 'usd' && (
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-pos-muted font-semibold text-sm pointer-events-none">$</span>
+              )}
+              <input
+                className={`input font-mono text-lg text-center ${entryCurrency === 'usd' ? 'pl-7' : ''}`}
+                autoFocus
+                type="text" inputMode="decimal" placeholder="0"
+                value={amountDisplay}
+                onChange={e => {
+                  const raw = e.target.value.replace(/,/g, '');
+                  if (entryCurrency === 'usd') {
+                    // Allow decimals for USD
+                    const cleaned = raw.replace(/[^0-9.]/g, '').replace(/(\..*)\./g, '$1');
+                    setEntryForm(f => ({ ...f, amount: cleaned }));
+                    setAmountDisplay(cleaned);
+                  } else {
+                    const stripped = raw.replace(/[^0-9]/g, '');
+                    setEntryForm(f => ({ ...f, amount: stripped }));
+                    setAmountDisplay(stripped === '' ? '' : Number(stripped).toLocaleString('en-US'));
+                  }
+                }}
+                onKeyDown={e => { if (e.key === 'Enter') handleAddEntry(); }}
+              />
+            </div>
             {entryForm.amount && (
-              <p className="text-xs text-pos-muted mt-1 text-center">= {formatUSD(lbpToUsd(parseFloat(entryForm.amount) || 0, rate))}</p>
+              <p className="text-xs text-pos-muted mt-1 text-center">
+                {entryCurrency === 'usd'
+                  ? `≈ ${formatLBP(Math.round((parseFloat(entryForm.amount) || 0) * rate))}`
+                  : `≈ ${formatUSD(lbpToUsd(parseFloat(entryForm.amount) || 0, rate))}`
+                }
+              </p>
             )}
           </div>
 
           {selected && selected.balance_lbp > 0 && entryType === 'payment' && (
             <button
               onClick={() => {
-                const raw = String(Math.round(selected.balance_lbp));
-                setEntryForm(f => ({ ...f, amount: raw }));
-                setAmountDisplay(Number(raw).toLocaleString('en-US'));
+                if (entryCurrency === 'usd') {
+                  // Convert balance to USD
+                  const usdVal = (selected.balance_lbp / rate).toFixed(2);
+                  setEntryForm(f => ({ ...f, amount: usdVal }));
+                  setAmountDisplay(usdVal);
+                } else {
+                  const raw = String(Math.round(selected.balance_lbp));
+                  setEntryForm(f => ({ ...f, amount: raw }));
+                  setAmountDisplay(Number(raw).toLocaleString('en-US'));
+                }
               }}
               className="text-xs text-pos-primary hover:brightness-110 transition-colors"
-            > {t('pay_full_balance')} ({formatLBP(selected.balance_lbp)})
+            >
+              {t('pay_full_balance')} ({formatLBP(selected.balance_lbp)} ≈ {formatUSD(lbpToUsd(selected.balance_lbp, rate))})
             </button>
           )}
 
@@ -779,7 +829,7 @@ export const DebtsPage: React.FC = () => {
           </div>
 
           <div className="flex gap-3 pt-1">
-            <Button variant="secondary" className="flex-1" onClick={() => setAddEntryOpen(false)}>{t('cancel_btn')}</Button>
+            <Button variant="secondary" className="flex-1" onClick={() => { setAddEntryOpen(false); setEntryCurrency('lbp'); }}>{t('cancel_btn')}</Button>
             <Button
               className="flex-1"
               loading={saving}

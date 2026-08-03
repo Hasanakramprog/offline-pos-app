@@ -17,14 +17,15 @@ interface CartStore {
   // Held orders
   heldOrders: HeldOrder[];
 
-  addItem:         (item: Omit<CartItem, 'line_total_lbp'>) => void;
-  removeItem:      (productId: string) => void;
-  updateQty:       (productId: string, qty: number) => void;
-  setItemDiscount: (productId: string, discount: number) => void;
-  setOrderDiscount:(discount: number) => void;
-  clearCart:       () => void;
-  subtotal:        () => number;
-  total:           () => number;
+  addItem:          (item: Omit<CartItem, 'line_total_lbp'>) => void;
+  removeItem:       (productId: string) => void;
+  updateQty:        (productId: string, qty: number) => void;
+  updateItemPrice:  (productId: string, newPriceLbp: number) => void;
+  setItemDiscount:  (productId: string, discount: number) => void;
+  setOrderDiscount: (discount: number) => void;
+  clearCart:        () => void;
+  subtotal:         () => number;
+  total:            () => number;
 
   // Hold / resume
   parkOrder:   () => string | null;  // parks current cart, returns held id (or null if empty)
@@ -66,6 +67,14 @@ export const useCartStore = create<CartStore>((set, get) => ({
         ? { ...i, quantity: qty, line_total_lbp: calcLineTotal({ ...i, quantity: qty }) }
         : i
     ).filter(i => i.quantity > 0),
+  })),
+
+  updateItemPrice: (id, newPriceLbp) => set((s) => ({
+    items: s.items.map(i =>
+      i.product_id === id
+        ? { ...i, unit_price_lbp: newPriceLbp, line_total_lbp: calcLineTotal({ ...i, unit_price_lbp: newPriceLbp }) }
+        : i
+    ),
   })),
 
   setItemDiscount: (id, discount) => set((s) => ({

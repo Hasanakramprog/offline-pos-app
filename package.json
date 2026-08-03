@@ -42,16 +42,23 @@
   "build": {
     "appId": "com.minimarket.pos",
     "productName": "MiniMarket POS",
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "node_modules/sql.js/**/*"
+    ],
     "directories": {
       "output": "release"
     },
     "files": [
       "dist/**/*",
       "electron/**/*",
-      "database/**/*",
-      "node_modules/**/*",
       "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "database/",
+        "to": "database/"
+      }
     ],
     "win": {
       "target": [
